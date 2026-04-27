@@ -457,12 +457,14 @@ func (h *ArenaHub) Run() {
 func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 	nowMS := now.UnixMilli()
 	namestekLines := []string{
-		"Nevíte kde je Martin?",
+		"Nevíte, kde je Martin?",
 		"Je tady Martin",
 		"Martin?",
 		"Pošlete za mnou Martina",
 		"Hledám Martina",
 		"Neviděl někdo Martina?",
+		"Martineee?",
+		"Byl tady Martin?",
 	}
 	dogLines := []string{
 		"Woof woof",
