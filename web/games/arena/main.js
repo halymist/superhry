@@ -5,28 +5,58 @@ import * as THREE from 'three';
 
 // ---------------- config ----------------
 const MOVE_SPEED   = 8.0;   // u/s
+const MOVE_ACCEL   = 32.0;  // u/s^2 for direction easing
+const MOVE_DRAG    = 20.0;  // velocity decay when stopping
 
 // Q skillshot (Mystic Shot)
-const Q_SPEED      = 25.0;
-const Q_RANGE      = 18.0;
+const Q_SPEED_START = 11.0;
+const Q_SPEED_MAX   = 22.0;
+const Q_ACCEL       = 26.0;
+const Q_RANGE      = 24.0;
 const Q_RADIUS     = 0.5;
 const Q_DAMAGE     = 40;
-const Q_COOLDOWN_MS = 1500;
+const Q_COOLDOWN_MS = 1800;
+const Q_COST       = 35;
 
 // Ranged auto-attack
-const AA_SPEED     = 30.0;
-const AA_RANGE     = 11.0;
+const AA_SPEED_START = 14.0;
+const AA_SPEED_MAX   = 24.0;
+const AA_ACCEL       = 28.0;
+const AA_RANGE     = 15.0;
 const AA_RADIUS    = 0.28;
 const AA_DAMAGE    = 12;
-const AA_COOLDOWN_MS = 600;
+const AA_COOLDOWN_MS = 700;
+
+// R ultimate (Trueshot Barrage)
+const R_SPEED_START = 9.0;
+const R_SPEED_MAX   = 30.0;
+const R_ACCEL       = 18.0;
+const R_RANGE      = 60.0;
+const R_RADIUS     = 1.25;
+const R_DAMAGE     = 80;
+const R_COOLDOWN_MS = 2500;
+const R_COST       = 75;
 
 const PLAYER_RADIUS = 0.6;
 
 // E blink
 const E_RANGE = 7.5;
-const E_COOLDOWN_MS = 7000;
+const E_COOLDOWN_MS = 8000;
 const E_OUT_MS = 80;
 const E_IN_MS  = 140;
+const E_COST   = 50;
+
+// W sprint
+const W_SPEED_MULT = 1.5;
+const W_DURATION_MS = 8000;
+const W_COST = 30;
+
+// camera pan
+const CAM_PAN_EDGE = 0.82;
+const CAM_PAN_SPEED = 24.0;
+
+// pickups
+const PICKUP_RADIUS = 0.6;
 
 const INTERP_DELAY_MS = 120; // remote interpolation
 const SEND_HZ = 20;
@@ -38,12 +68,19 @@ const nameGo    = document.getElementById('name-go');
 
 const hpText = document.getElementById('hp-text');
 const hpFill = document.getElementById('hp-fill');
+const mpText = document.getElementById('mp-text');
+const mpFill = document.getElementById('mp-fill');
+const buffWIndicator = document.getElementById('buff-w-indicator');
 const slotQ     = document.getElementById('slot-q');
 const slotQMask = document.getElementById('slot-q-mask');
+const slotW     = document.getElementById('slot-w');
+const slotWMask = document.getElementById('slot-w-mask');
 const slotE     = document.getElementById('slot-e');
 const slotEMask = document.getElementById('slot-e-mask');
-const playerListEl = document.getElementById('player-list');
-const killfeedEl = document.getElementById('killfeed');
+const slotR     = document.getElementById('slot-r');
+const slotRMask = document.getElementById('slot-r-mask');
+const minimapCanvas = document.getElementById('minimap');
+const minimapCtx = minimapCanvas.getContext('2d');
 
 const savedName = sessionStorage.getItem('superhry-name') || '';
 nameInput.value = savedName;
@@ -81,7 +118,7 @@ sun.position.set(12, 22, 10);
 scene.add(sun);
 
 // ground & grid
-const GROUND_HX = 25, GROUND_HZ = 15;
+const GROUND_HX = 36, GROUND_HZ = 22;
 const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(GROUND_HX * 2, GROUND_HZ * 2),
   new THREE.MeshStandardMaterial({ color: 0x2e4f84, roughness: 0.95 })
@@ -144,14 +181,22 @@ function makeBody(color) {
   body.position.y = 0.9;
   g.add(body);
 
-  // clearer facing marker: a bright forward wedge + ring.
-  const dir = new THREE.Mesh(
-    new THREE.ConeGeometry(0.22, 0.8, 12),
-    new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x88d8ff, emissiveIntensity: 0.55 })
+  const face = new THREE.Mesh(
+    new THREE.SphereGeometry(0.17, 14, 10),
+    new THREE.MeshStandardMaterial({ color: 0xe8f6ff, emissive: 0x9adfff, emissiveIntensity: 0.38 })
   );
-  dir.rotation.x = Math.PI / 2;
-  dir.position.set(0, 0.95, -0.95);
-  g.add(dir);
+  face.position.set(0, 1.06, -0.62);
+  g.add(face);
+
+  const eyeL = new THREE.Mesh(
+    new THREE.SphereGeometry(0.04, 10, 8),
+    new THREE.MeshStandardMaterial({ color: 0x11253d, emissive: 0x8de7ff, emissiveIntensity: 0.5 })
+  );
+  eyeL.position.set(-0.055, 1.08, -0.74);
+  g.add(eyeL);
+  const eyeR = eyeL.clone();
+  eyeR.position.x = 0.055;
+  g.add(eyeR);
 
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.86, 0.98, 24),
@@ -166,6 +211,11 @@ function makeBody(color) {
   sprite.position.y = 2.2;
   g.add(sprite);
   g.userData.nameSprite = sprite;
+
+  const hpSprite = makeHpSprite();
+  hpSprite.position.y = 1.85;
+  g.add(hpSprite);
+  g.userData.hpSprite = hpSprite;
 
   return g;
 }
@@ -184,6 +234,39 @@ function makeNameSprite(text) {
   sp.userData.ctx = ctx;
   sp.userData.tex = tex;
   return sp;
+}
+function makeHpSprite() {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 24;
+  const ctx = c.getContext('2d');
+  drawHpSprite(ctx, 1);
+  const tex = new THREE.CanvasTexture(c);
+  tex.minFilter = THREE.LinearFilter;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+  const sp = new THREE.Sprite(mat);
+  sp.scale.set(1.7, 0.28, 1);
+  sp.userData.canvas = c;
+  sp.userData.ctx = ctx;
+  sp.userData.tex = tex;
+  return sp;
+}
+function drawHpSprite(ctx, ratio) {
+  const w = 128, h = 24;
+  const innerX = 4, innerY = 6, innerW = 120, innerH = 12;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#3b1f30';
+  ctx.fillRect(innerX, innerY, innerW, innerH);
+  ctx.fillStyle = '#ff5d7a';
+  ctx.fillRect(innerX, innerY, Math.max(0, Math.min(innerW, innerW * ratio)), innerH);
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.strokeRect(innerX + 0.5, innerY + 0.5, innerW - 1, innerH - 1);
+}
+function setHpSprite(sp, hp, maxHp) {
+  const ratio = maxHp > 0 ? Math.max(0, Math.min(1, hp / maxHp)) : 0;
+  drawHpSprite(sp.userData.ctx, ratio);
+  sp.userData.tex.needsUpdate = true;
 }
 function drawNameSprite(ctx, text, color) {
   ctx.clearRect(0, 0, 256, 64);
@@ -205,16 +288,22 @@ let ws = null;
 let myId = 0;
 let serverHalfX = GROUND_HX, serverHalfZ = GROUND_HZ;
 let startHP = 100;
+let startMana = 100;
+let myMana = 100; // optimistic local prediction; corrected by snapshots
 
 const players = new Map(); // id -> { mesh, name, hp, alive, snapshots: [{t,x,z,facing}], lastSeen }
 const projectiles = []; // {pid, owner, x, z, vx, vz, dist, max, mesh, hitDone}
+const pickups = new Map(); // id -> { kind, x, z, mesh }
 
 let myProjectileSeq = 1;
 let qReadyAt = 0;
+let wActiveUntil = 0;
 let eReadyAt = 0;
+let rReadyAt = 0;
 let aaReadyAt = 0;
 let teleportMode = false;
 let qMode = false;
+let rMode = false;
 
 // --- collision helpers ---
 function pointInObstacle(x, z, rad) {
@@ -253,6 +342,15 @@ const aimLine = new THREE.Line(aimLineGeom, aimLineMat);
 aimLine.visible = false;
 scene.add(aimLine);
 
+const sprintTrailMat = new THREE.LineBasicMaterial({ color: 0xa9f6ff, transparent: true, opacity: 0.55 });
+const sprintTrailGeom = new THREE.BufferGeometry().setFromPoints([
+  new THREE.Vector3(0, 0.8, 0),
+  new THREE.Vector3(0, 0.8, 0),
+]);
+const sprintTrail = new THREE.Line(sprintTrailGeom, sprintTrailMat);
+sprintTrail.visible = false;
+scene.add(sprintTrail);
+
 const teleportRangeMat = new THREE.MeshBasicMaterial({ color: 0x78c3ff, transparent: true, opacity: 0.22, side: THREE.DoubleSide });
 const teleportRange = new THREE.Mesh(new THREE.CircleGeometry(E_RANGE, 40), teleportRangeMat);
 teleportRange.rotation.x = -Math.PI / 2;
@@ -261,6 +359,12 @@ teleportRange.visible = false;
 scene.add(teleportRange);
 
 const blink = { active: false, start: 0 };
+const camPos = new THREE.Vector3();
+const camLook = new THREE.Vector3();
+const camDesiredPos = new THREE.Vector3();
+const camDesiredLook = new THREE.Vector3();
+const cameraAnchor = new THREE.Vector2(0, 0);
+let camReady = false;
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -291,6 +395,8 @@ function onMessage(raw) {
       serverHalfX = m.data.halfX;
       serverHalfZ = m.data.halfZ;
       startHP = m.data.startHp;
+      startMana = m.data.startMana || 100;
+      myMana = startMana;
       break;
 
     case 'snap':
@@ -322,7 +428,7 @@ function handleSnapshot(snap) {
       const color = p.id === myId ? 0x6cf : pickColor(p.id);
       const mesh = makeBody(color);
       scene.add(mesh);
-      pl = { mesh, name: p.name, hp: p.hp, alive: p.alive, snapshots: [], color };
+      pl = { mesh, name: p.name, hp: p.hp, mana: p.mana, alive: p.alive, snapshots: [], color };
       players.set(p.id, pl);
       setNameSprite(mesh.userData.nameSprite, p.name, p.id === myId ? '#6cf' : '#e6e8ee');
     }
@@ -330,8 +436,14 @@ function handleSnapshot(snap) {
       pl.name = p.name;
       setNameSprite(pl.mesh.userData.nameSprite, p.name, p.id === myId ? '#6cf' : '#e6e8ee');
     }
+    const wasAlive = pl.alive;
     pl.hp = p.hp;
+    pl.mana = p.mana;
     pl.alive = p.alive;
+    if (pl.mesh.userData.hpSprite) {
+      setHpSprite(pl.mesh.userData.hpSprite, p.hp, startHP);
+      pl.mesh.userData.hpSprite.visible = p.id !== myId && p.alive;
+    }
     if (p.id !== myId) {
       pl.snapshots.push({ t: snap.t, x: p.x, z: p.z, facing: p.facing });
       // trim to last 1s
@@ -340,25 +452,51 @@ function handleSnapshot(snap) {
     }
     // visibility on death
     pl.mesh.visible = p.alive;
-    // server-driven (re)spawn position for me: snap on dead→alive transition,
-    // and on first ever snapshot
+    // server-driven (re)spawn position for me: always snap on dead->alive,
+    // first sync, or if we somehow drift far from authority.
     if (p.id === myId) {
-      if (pl._initSync !== true || (pl._wasAlive === false && p.alive)) {
+      const desync = Math.hypot(myPos.x - p.x, myPos.z - p.z);
+      if (pl._initSync !== true || (!wasAlive && p.alive) || desync > 2.5) {
         myPos.x = p.x; myPos.z = p.z;
+        myVel.set(0, 0);
         pl._initSync = true;
       }
-      pl._wasAlive = p.alive;
     }
   }
   // any local player not in snapshot → remove
   for (const id of [...players.keys()]) {
     if (!seenIds.has(id)) removePlayer(id);
   }
-  // update my HP from snapshot
+  // update my HP/Mana from snapshot
   const me = players.get(myId);
   if (me) {
     hpText.textContent = `${me.hp}/${startHP}`;
     hpFill.style.width = `${Math.max(0, me.hp) / startHP * 100}%`;
+    if (typeof me.mana === 'number') {
+      // Server is authoritative; if local prediction undershot, snap up.
+      if (me.mana > myMana) myMana = me.mana;
+      // If server is lower than our prediction, accept it (we predicted too
+      // optimistically or another cast was rejected).
+      if (me.mana < myMana - 2) myMana = me.mana;
+    }
+    mpText.textContent = `${Math.round(myMana)}/${startMana}`;
+    mpFill.style.width = `${Math.max(0, myMana) / startMana * 100}%`;
+  }
+  // pickups diff
+  const pkSeen = new Set();
+  if (Array.isArray(snap.pickups)) {
+    for (const pk of snap.pickups) {
+      pkSeen.add(pk.id);
+      if (!pickups.has(pk.id)) {
+        spawnPickupMesh(pk);
+      } else {
+        const cur = pickups.get(pk.id);
+        cur.expireAtMs = pk.expireAtMs || cur.expireAtMs || 0;
+      }
+    }
+  }
+  for (const id of [...pickups.keys()]) {
+    if (!pkSeen.has(id)) removePickup(id);
   }
   refreshPlayerList();
 }
@@ -368,6 +506,9 @@ function removePlayer(id) {
   if (!pl) return;
   scene.remove(pl.mesh);
   pl.mesh.userData.nameSprite.userData.tex.dispose();
+  if (pl.mesh.userData.hpSprite?.userData?.tex) {
+    pl.mesh.userData.hpSprite.userData.tex.dispose();
+  }
   pl.mesh.traverse(o => {
     if (o.geometry) o.geometry.dispose();
     if (o.material) {
@@ -379,6 +520,9 @@ function removePlayer(id) {
 }
 
 function refreshPlayerList() {
+  // Player list panel may be absent depending on HUD layout.
+  const playerListEl = document.getElementById('player-list');
+  if (!playerListEl) return;
   const rows = [];
   const sorted = [...players.values()].sort((a, b) => a.name.localeCompare(b.name));
   for (const p of sorted) {
@@ -388,13 +532,7 @@ function refreshPlayerList() {
   playerListEl.innerHTML = rows.join('');
 }
 
-function pushKillfeed(html) {
-  const div = document.createElement('div');
-  div.className = 'kf-row';
-  div.innerHTML = html;
-  killfeedEl.prepend(div);
-  while (killfeedEl.children.length > 6) killfeedEl.removeChild(killfeedEl.lastChild);
-}
+function pushKillfeed(_html) { /* killfeed removed */ }
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -408,13 +546,52 @@ function pickColor(id) {
 // ---------------- input ----------------
 window.addEventListener('keydown', e => {
   if (nameModal.style.display !== 'none') return;
-  if (e.code === 'KeyQ' || e.code === 'Space') {
+  if (e.code === 'KeyQ') {
     e.preventDefault();
     tryEnterQMode();
+  } else if (e.code === 'KeyW') {
+    e.preventDefault();
+    tryCastW();
   } else if (e.code === 'KeyE') {
     e.preventDefault();
     tryEnterTeleportMode();
+  } else if (e.code === 'KeyR') {
+    e.preventDefault();
+    tryEnterRMode();
+  } else if (e.code === 'Space') {
+    e.preventDefault();
+    centerCameraOnMe();
+  } else if (e.code === 'Escape') {
+    clearAbilityModes();
   }
+});
+
+slotQ.addEventListener('click', () => {
+  if (qMode) {
+    qMode = false;
+    slotQ.classList.remove('targeting');
+    return;
+  }
+  tryEnterQMode();
+});
+slotW.addEventListener('click', () => {
+  tryCastW();
+});
+slotE.addEventListener('click', () => {
+  if (teleportMode) {
+    teleportMode = false;
+    slotE.classList.remove('targeting');
+    return;
+  }
+  tryEnterTeleportMode();
+});
+slotR.addEventListener('click', () => {
+  if (rMode) {
+    rMode = false;
+    slotR.classList.remove('targeting');
+    return;
+  }
+  tryEnterRMode();
 });
 
 const mouseWorld = new THREE.Vector3(); // intersection with ground
@@ -435,14 +612,14 @@ canvas.addEventListener('mousedown', e => {
   if (e.button === 0) {
     if (teleportMode) {
       tryTeleport();
+    } else if (rMode) {
+      tryFireR();
     } else if (qMode) {
       tryFireQ();
     } else {
       tryAutoAttack();
     }
   } else if (e.button === 2) {
-    if (teleportMode) { teleportMode = false; slotE.classList.remove('targeting'); }
-    if (qMode)        { qMode = false;        slotQ.classList.remove('targeting'); }
     rightMouseDown = true;
     updateMouseWorld();
     setMoveTarget(mouseWorld.x, mouseWorld.z);
@@ -470,6 +647,7 @@ function updateMouseWorld() {
 // ---------------- local player state ----------------
 const myPos = new THREE.Vector3(0, 0, 0);
 let myFacing = 0;
+const myVel = new THREE.Vector2(0, 0);
 const moveTarget = new THREE.Vector2();
 let hasMoveTarget = false;
 
@@ -483,29 +661,89 @@ function setupSpawn() {
   myPos.x = (Math.random() * 2 - 1) * (serverHalfX - 2);
   myPos.z = (Math.random() * 2 - 1) * (serverHalfZ - 2);
   hasMoveTarget = false;
+  myVel.set(0, 0);
+  wActiveUntil = 0;
   teleportMode = false;
   qMode = false;
+  rMode = false;
   blink.active = false;
+  camReady = false;
   slotE.classList.remove('targeting');
   slotQ.classList.remove('targeting');
+  slotR.classList.remove('targeting');
+  centerCameraOnMe();
+}
+
+function centerCameraOnMe() {
+  const b = getCameraAnchorBounds();
+  cameraAnchor.x = Math.max(b.minX, Math.min(b.maxX, myPos.x));
+  cameraAnchor.y = Math.max(b.minZ, Math.min(b.maxZ, myPos.z));
+  camReady = false;
+}
+
+function getCameraAnchorBounds() {
+  // Keep camera angle fixed by constraining only the anchor.
+  const minX = Math.max(-serverHalfX, -serverHalfX - CAM_OFFSET.x, -serverHalfX);
+  const maxX = Math.min(serverHalfX, serverHalfX - CAM_OFFSET.x, serverHalfX);
+  const minZ = Math.max(-serverHalfZ, -serverHalfZ - CAM_OFFSET.z, -serverHalfZ - CAM_LOOK_OFFSET_Z);
+  const maxZ = Math.min(serverHalfZ, serverHalfZ - CAM_OFFSET.z, serverHalfZ - CAM_LOOK_OFFSET_Z);
+  if (minX > maxX || minZ > maxZ) {
+    return { minX: -serverHalfX, maxX: serverHalfX, minZ: -serverHalfZ, maxZ: serverHalfZ };
+  }
+  return { minX, maxX, minZ, maxZ };
+}
+
+function clearAbilityModes() {
+  qMode = false;
+  teleportMode = false;
+  rMode = false;
+  slotQ.classList.remove('targeting');
+  slotE.classList.remove('targeting');
+  slotR.classList.remove('targeting');
 }
 
 function tryEnterQMode() {
   const me = players.get(myId);
   if (!me || !me.alive) return;
   if (performance.now() < qReadyAt) return;
+  if (myMana < Q_COST) return;
   qMode = true;
   slotQ.classList.add('targeting');
   if (teleportMode) { teleportMode = false; slotE.classList.remove('targeting'); }
+  if (rMode)        { rMode = false;        slotR.classList.remove('targeting'); }
+}
+
+function tryEnterRMode() {
+  const me = players.get(myId);
+  if (!me || !me.alive) return;
+  if (performance.now() < rReadyAt) return;
+  if (myMana < R_COST) return;
+  rMode = true;
+  slotR.classList.add('targeting');
+  if (teleportMode) { teleportMode = false; slotE.classList.remove('targeting'); }
+  if (qMode)        { qMode = false;        slotQ.classList.remove('targeting'); }
+}
+
+function tryCastW() {
+  const me = players.get(myId);
+  if (!me || !me.alive) return;
+  const now = performance.now();
+  if (now < wActiveUntil) return;
+  if (myMana < W_COST) return;
+  wActiveUntil = now + W_DURATION_MS;
+  myMana = Math.max(0, myMana - W_COST);
+  send({ type: 'cast', data: { kind: 'w' } });
 }
 
 function tryEnterTeleportMode() {
   const me = players.get(myId);
   if (!me || !me.alive) return;
   if (performance.now() < eReadyAt) return;
+  if (myMana < E_COST) return;
   teleportMode = true;
   slotE.classList.add('targeting');
   if (qMode) { qMode = false; slotQ.classList.remove('targeting'); }
+  if (rMode) { rMode = false; slotR.classList.remove('targeting'); }
 }
 
 function tryTeleport() {
@@ -513,6 +751,7 @@ function tryTeleport() {
   if (!me || !me.alive) return;
   const now = performance.now();
   if (now < eReadyAt) return;
+  if (myMana < E_COST) return;
 
   const dx = mouseWorld.x - myPos.x;
   const dz = mouseWorld.z - myPos.z;
@@ -521,23 +760,38 @@ function tryTeleport() {
 
   const ux = dx / dist, uz = dz / dist;
   const want = Math.min(E_RANGE, dist);
-  const dest = segmentEndpoint(myPos.x, myPos.z, ux, uz, want, PLAYER_RADIUS);
+  // E phases through walls/projectiles: just step to map-bounded destination.
+  let nx = myPos.x + ux * want;
+  let nz = myPos.z + uz * want;
+  nx = Math.max(-serverHalfX + PLAYER_RADIUS, Math.min(serverHalfX - PLAYER_RADIUS, nx));
+  nz = Math.max(-serverHalfZ + PLAYER_RADIUS, Math.min(serverHalfZ - PLAYER_RADIUS, nz));
 
-  // Bail if blocked immediately
-  if (Math.hypot(dest.x - myPos.x, dest.z - myPos.z) < 0.1) return;
+  // If destination lands inside an obstacle, nudge out along inverse dir.
+  if (pointInObstacle(nx, nz, PLAYER_RADIUS)) {
+    let pushed = false;
+    for (let s = 0.4; s <= want; s += 0.4) {
+      const tx = nx - ux * s;
+      const tz = nz - uz * s;
+      if (!pointInObstacle(tx, tz, PLAYER_RADIUS)) {
+        nx = tx; nz = tz; pushed = true; break;
+      }
+    }
+    if (!pushed) return;
+  }
 
-  myPos.x = Math.max(-serverHalfX, Math.min(serverHalfX, dest.x));
-  myPos.z = Math.max(-serverHalfZ, Math.min(serverHalfZ, dest.z));
+  myPos.x = nx;
+  myPos.z = nz;
   hasMoveTarget = false;
 
   eReadyAt = now + E_COOLDOWN_MS;
+  myMana = Math.max(0, myMana - E_COST);
   teleportMode = false;
   slotE.classList.remove('targeting');
 
   blink.active = true;
   blink.start = now;
 
-  // Push immediate state so others see the blink quickly.
+  send({ type: 'cast', data: { kind: 'e' } });
   send({ type: 'state', data: { x: myPos.x, z: myPos.z, facing: myFacing } });
 }
 
@@ -547,10 +801,25 @@ function tryFireQ() {
   if (!me || !me.alive) return;
   const now = performance.now();
   if (now < qReadyAt) return;
+  if (myMana < Q_COST) return;
   qReadyAt = now + Q_COOLDOWN_MS;
+  myMana = Math.max(0, myMana - Q_COST);
   qMode = false;
   slotQ.classList.remove('targeting');
   fireProjectile('q');
+}
+
+function tryFireR() {
+  const me = players.get(myId);
+  if (!me || !me.alive) return;
+  const now = performance.now();
+  if (now < rReadyAt) return;
+  if (myMana < R_COST) return;
+  rReadyAt = now + R_COOLDOWN_MS;
+  myMana = Math.max(0, myMana - R_COST);
+  rMode = false;
+  slotR.classList.remove('targeting');
+  fireProjectile('r');
 }
 
 function tryAutoAttack() {
@@ -578,73 +847,91 @@ function fireProjectile(kind) {
   send({ type: 'fire', data: { pid, ox, oz, dx, dz, kind } });
 }
 
+function projectileSpec(kind) {
+  switch (kind) {
+    case 'r':
+      return { radius: R_RADIUS, startSpeed: R_SPEED_START, maxSpeed: R_SPEED_MAX, accel: R_ACCEL, range: R_RANGE, dmg: R_DAMAGE, pierce: true };
+    case 'aa':
+      return { radius: AA_RADIUS, startSpeed: AA_SPEED_START, maxSpeed: AA_SPEED_MAX, accel: AA_ACCEL, range: AA_RANGE, dmg: AA_DAMAGE, pierce: false };
+    default:
+      return { radius: Q_RADIUS, startSpeed: Q_SPEED_START, maxSpeed: Q_SPEED_MAX, accel: Q_ACCEL, range: Q_RANGE, dmg: Q_DAMAGE, pierce: false };
+  }
+}
+
 function spawnProjectile(p) {
   const kind = p.kind || 'q';
-  const isQ = kind === 'q';
-  const radius = isQ ? Q_RADIUS : AA_RADIUS;
-  const speed  = isQ ? Q_SPEED  : AA_SPEED;
-  const range  = isQ ? Q_RANGE  : AA_RANGE;
-  const dmg    = isQ ? Q_DAMAGE : AA_DAMAGE;
-  const color  = isQ
-    ? (p.owner === myId ? 0xffe48a : 0xff9b66)
-    : (p.owner === myId ? 0xa6f0ff : 0xfff0a0);
+  const spec = projectileSpec(kind);
+  let color;
+  if (kind === 'r')      color = p.owner === myId ? 0xff7df6 : 0xff5dc8;
+  else if (kind === 'aa') color = p.owner === myId ? 0xa6f0ff : 0xfff0a0;
+  else                    color = p.owner === myId ? 0xffe48a : 0xff9b66;
 
   const mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(radius, 18, 14),
-    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.85 })
+    new THREE.SphereGeometry(spec.radius, 22, 16),
+    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: kind === 'r' ? 1.1 : 0.85 })
   );
   mesh.position.set(p.ox, 1.0, p.oz);
   scene.add(mesh);
 
-  const light = new THREE.PointLight(color, isQ ? 1.0 : 0.5, isQ ? 5 : 3);
+  const light = new THREE.PointLight(color, kind === 'r' ? 1.6 : (kind === 'q' ? 1.0 : 0.5), kind === 'r' ? 8 : (kind === 'q' ? 5 : 3));
   mesh.add(light);
 
   projectiles.push({
     pid: p.pid,
     owner: p.owner,
     x: p.ox, z: p.oz,
-    vx: p.dx * speed, vz: p.dz * speed,
-    radius, range, dmg, isQ,
+    dirX: p.dx, dirZ: p.dz,
+    speed: spec.startSpeed,
+    maxSpeed: spec.maxSpeed,
+    accel: spec.accel,
+    radius: spec.radius, range: spec.range, dmg: spec.dmg, pierce: spec.pierce,
+    kind,
     dist: 0,
     mesh,
     hitDone: false,
+    hitSet: new Set(),
   });
 }
 
 function updateProjectiles(dt) {
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const pr = projectiles[i];
-    const stepX = pr.vx * dt;
-    const stepZ = pr.vz * dt;
+    pr.speed = Math.min(pr.maxSpeed, pr.speed + pr.accel * dt);
+    const stepX = pr.dirX * pr.speed * dt;
+    const stepZ = pr.dirZ * pr.speed * dt;
     pr.x += stepX;
     pr.z += stepZ;
     pr.dist += Math.hypot(stepX, stepZ);
     pr.mesh.position.x = pr.x;
     pr.mesh.position.z = pr.z;
 
-    // wall collision
-    if (pointInObstacle(pr.x, pr.z, pr.radius)) {
+    // wall collision (R pierces walls)
+    if (!pr.pierce && pointInObstacle(pr.x, pr.z, pr.radius)) {
       disposeProjectile(i);
       continue;
     }
 
     // shooter checks hits (client-authoritative)
-    if (pr.owner === myId && !pr.hitDone) {
+    if (pr.owner === myId) {
       for (const [pid, pl] of players) {
         if (pid === myId || !pl.alive) continue;
+        if (pr.hitSet.has(pid)) continue;
         const tx = pl.mesh.position.x;
         const tz = pl.mesh.position.z;
         const dx = tx - pr.x, dz = tz - pr.z;
-        if (dx * dx + dz * dz <= (pr.radius + PLAYER_RADIUS) ** 2) {
-          pr.hitDone = true;
+        const extra = pr.kind === 'r' ? 0.35 : 0.0;
+        if (dx * dx + dz * dz <= (pr.radius + PLAYER_RADIUS + extra) ** 2) {
+          pr.hitSet.add(pid);
           send({ type: 'hit', data: { pid: pr.pid, target: pid, dmg: pr.dmg } });
-          disposeProjectile(i);
-          break;
+          if (!pr.pierce) {
+            disposeProjectile(i);
+            break;
+          }
         }
       }
+      if (!projectiles[i]) continue; // disposed above
     }
 
-    // expire on range or wall
     if (pr.dist > pr.range ||
         Math.abs(pr.x) > serverHalfX + 1 ||
         Math.abs(pr.z) > serverHalfZ + 1) {
@@ -664,6 +951,128 @@ function disposeProjectile(i) {
     }
   });
   projectiles.splice(i, 1);
+}
+
+// ---------------- pickups ----------------
+function spawnPickupMesh(pk) {
+  const isHP = pk.kind === 'hp';
+  const color = isHP ? 0xff5d8c : 0x56d9ff;
+  const baseOpacity = 0.55;
+  const g = new THREE.Group();
+  const orbMat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.85, transparent: true, opacity: 1.0 });
+  const orb = new THREE.Mesh(
+    new THREE.SphereGeometry(0.32, 16, 12),
+    orbMat
+  );
+  orb.position.y = 0.5;
+  g.add(orb);
+  const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: baseOpacity, side: THREE.DoubleSide });
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.45, 0.6, 24),
+    ringMat
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.04;
+  g.add(ring);
+  const light = new THREE.PointLight(color, 0.5, 3);
+  light.position.y = 0.5;
+  g.add(light);
+  g.position.set(pk.x, 0, pk.z);
+  scene.add(g);
+  pickups.set(pk.id, {
+    id: pk.id,
+    kind: pk.kind,
+    x: pk.x,
+    z: pk.z,
+    mesh: g,
+    t0: performance.now(),
+    expireAtMs: pk.expireAtMs || 0,
+    ringBaseOpacity: baseOpacity,
+    orbMat,
+    ringMat,
+    light,
+  });
+}
+
+function removePickup(id) {
+  const pk = pickups.get(id);
+  if (!pk) return;
+  scene.remove(pk.mesh);
+  pk.mesh.traverse(o => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) {
+      if (Array.isArray(o.material)) o.material.forEach(m => m.dispose()); else o.material.dispose();
+    }
+  });
+  pickups.delete(id);
+}
+
+function updatePickups() {
+  const now = performance.now();
+  const nowMs = Date.now();
+  for (const pk of pickups.values()) {
+    pk.mesh.position.y = Math.sin((now - pk.t0) / 400) * 0.08;
+    pk.mesh.rotation.y = (now - pk.t0) / 600;
+
+    if (pk.expireAtMs > 0) {
+      const remain = pk.expireAtMs - nowMs;
+      const fade = remain <= 10000 ? Math.max(0, Math.min(1, remain / 10000)) : 1;
+      pk.orbMat.opacity = 0.2 + 0.8 * fade;
+      pk.ringMat.opacity = pk.ringBaseOpacity * (0.25 + 0.75 * fade);
+      pk.light.intensity = 0.15 + 0.35 * fade;
+    }
+  }
+  // collection check
+  const me = players.get(myId);
+  if (!me || !me.alive) return;
+  for (const pk of pickups.values()) {
+    const dx = pk.x - myPos.x;
+    const dz = pk.z - myPos.z;
+    if (dx * dx + dz * dz <= (PICKUP_RADIUS + PLAYER_RADIUS) ** 2) {
+      send({ type: 'pickup', data: { id: pk.id } });
+      removePickup(pk.id); // optimistic; snapshot will reconcile
+    }
+  }
+}
+
+// ---------------- minimap ----------------
+function drawMinimap() {
+  const W = minimapCanvas.width, H = minimapCanvas.height;
+  const ctx = minimapCtx;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#102040';
+  ctx.fillRect(0, 0, W, H);
+  // map -> minimap helpers
+  const sx = (x) => ((x + serverHalfX) / (2 * serverHalfX)) * W;
+  const sz = (z) => ((z + serverHalfZ) / (2 * serverHalfZ)) * H;
+  // obstacles
+  ctx.fillStyle = '#3b5d96';
+  for (const o of obstacles) {
+    const x0 = sx(o.minX), x1 = sx(o.maxX);
+    const z0 = sz(o.minZ), z1 = sz(o.maxZ);
+    ctx.fillRect(x0, z0, Math.max(1, x1 - x0), Math.max(1, z1 - z0));
+  }
+  // pickups
+  for (const pk of pickups.values()) {
+    ctx.fillStyle = pk.kind === 'hp' ? '#ff5d8c' : '#56d9ff';
+    ctx.beginPath();
+    ctx.arc(sx(pk.x), sz(pk.z), 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // players
+  for (const [id, pl] of players) {
+    if (!pl.alive) continue;
+    const x = sx(pl.mesh.position.x);
+    const z = sz(pl.mesh.position.z);
+    ctx.fillStyle = id === myId ? '#9bf' : '#ffe06b';
+    ctx.beginPath();
+    ctx.arc(x, z, id === myId ? 3.5 : 2.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // border
+  ctx.strokeStyle = '#56d9ff';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
 }
 
 // ---------------- hit display ----------------
@@ -699,26 +1108,55 @@ function loop(t) {
   const me = players.get(myId);
   const alive = me ? me.alive : true;
 
-  // local movement: right-click to move (with wall collision)
+  // local movement: right-click to move with eased direction changes
   if (alive) {
+    const sprintActive = performance.now() < wActiveUntil;
+    const moveSpeedNow = MOVE_SPEED * (sprintActive ? W_SPEED_MULT : 1);
+    let desiredVx = 0;
+    let desiredVz = 0;
     if (hasMoveTarget) {
       const dx = moveTarget.x - myPos.x;
       const dz = moveTarget.y - myPos.z;
       const dist = Math.hypot(dx, dz);
-      let nx, nz;
-      if (dist <= MOVE_SPEED * dt || dist < 0.08) {
-        nx = moveTarget.x; nz = moveTarget.y;
-      } else {
-        nx = myPos.x + (dx / dist) * MOVE_SPEED * dt;
-        nz = myPos.z + (dz / dist) * MOVE_SPEED * dt;
-      }
-      const res = resolveMove(myPos.x, myPos.z, nx, nz, PLAYER_RADIUS);
-      const moved = Math.hypot(res.x - myPos.x, res.z - myPos.z);
-      myPos.x = res.x; myPos.z = res.z;
-      myPos.x = Math.max(-serverHalfX, Math.min(serverHalfX, myPos.x));
-      myPos.z = Math.max(-serverHalfZ, Math.min(serverHalfZ, myPos.z));
-      if (dist <= MOVE_SPEED * dt || dist < 0.08 || moved < 0.0005) {
+      if (dist <= 0.06) {
         hasMoveTarget = false;
+      } else {
+        desiredVx = (dx / dist) * moveSpeedNow;
+        desiredVz = (dz / dist) * moveSpeedNow;
+      }
+    }
+
+    const steerAlpha = Math.min(1, MOVE_ACCEL * dt / MOVE_SPEED);
+    myVel.x += (desiredVx - myVel.x) * steerAlpha;
+    myVel.y += (desiredVz - myVel.y) * steerAlpha;
+
+    if (!hasMoveTarget) {
+      const drag = Math.max(0, 1 - MOVE_DRAG * dt / MOVE_SPEED);
+      myVel.x *= drag;
+      myVel.y *= drag;
+      if (Math.hypot(myVel.x, myVel.y) < 0.03) myVel.set(0, 0);
+    }
+
+    const nx = myPos.x + myVel.x * dt;
+    const nz = myPos.z + myVel.y * dt;
+    const res = resolveMove(myPos.x, myPos.z, nx, nz, PLAYER_RADIUS);
+    const moved = Math.hypot(res.x - myPos.x, res.z - myPos.z);
+    myPos.x = res.x; myPos.z = res.z;
+    myPos.x = Math.max(-serverHalfX, Math.min(serverHalfX, myPos.x));
+    myPos.z = Math.max(-serverHalfZ, Math.min(serverHalfZ, myPos.z));
+
+    if (moved < 0.0005) {
+      myVel.set(0, 0);
+      if (hasMoveTarget) {
+        const rem = Math.hypot(moveTarget.x - myPos.x, moveTarget.y - myPos.z);
+        if (rem < 0.25) hasMoveTarget = false;
+      }
+    }
+    if (hasMoveTarget) {
+      const rem = Math.hypot(moveTarget.x - myPos.x, moveTarget.y - myPos.z);
+      if (rem < 0.08) {
+        hasMoveTarget = false;
+        myVel.set(0, 0);
       }
     }
 
@@ -732,9 +1170,13 @@ function loop(t) {
     // dead → cancel any pending modes
     qMode = false;
     teleportMode = false;
+    rMode = false;
     hasMoveTarget = false;
+    myVel.set(0, 0);
+    sprintTrail.visible = false;
     slotQ.classList.remove('targeting');
     slotE.classList.remove('targeting');
+    slotR.classList.remove('targeting');
   }
 
   // place my mesh + apply blink scale animation
@@ -752,6 +1194,21 @@ function loop(t) {
       else s = (dtMs - E_OUT_MS) / E_IN_MS;
     }
     me.mesh.scale.setScalar(Math.max(0.05, s));
+
+    const sprintActive = alive && performance.now() < wActiveUntil;
+    if (sprintActive) {
+      const backX = -Math.sin(myFacing);
+      const backZ = -Math.cos(myFacing);
+      const pulse = 0.2 + 0.15 * Math.sin(performance.now() * 0.02);
+      const len = 1.8 + pulse;
+      const start = new THREE.Vector3(myPos.x, 0.88, myPos.z);
+      const end = new THREE.Vector3(myPos.x + backX * len, 0.88, myPos.z + backZ * len);
+      sprintTrail.geometry.setFromPoints([start, end]);
+      sprintTrailMat.opacity = 0.4 + 0.25 * Math.sin(performance.now() * 0.016);
+      sprintTrail.visible = true;
+    } else {
+      sprintTrail.visible = false;
+    }
   }
 
   // interpolate remote players
@@ -786,6 +1243,7 @@ function loop(t) {
 
   // projectiles
   updateProjectiles(dt);
+  updatePickups();
 
   // skillshot / autoattack aim indicator
   if (alive && hasMouse && !teleportMode) {
@@ -795,12 +1253,15 @@ function loop(t) {
     if (len > 0.001) {
       const ux = dx / len;
       const uz = dz / len;
-      const reach = qMode ? Q_RANGE : AA_RANGE;
+      let reach, color, opacity;
+      if (rMode)      { reach = R_RANGE; color = 0xff7df6; opacity = 0.95; }
+      else if (qMode) { reach = Q_RANGE; color = 0xffe27a; opacity = 0.95; }
+      else            { reach = AA_RANGE; color = 0x80e7ff; opacity = 0.45; }
       const start = new THREE.Vector3(myPos.x + ux * (PLAYER_RADIUS + 0.2), 0.08, myPos.z + uz * (PLAYER_RADIUS + 0.2));
       const end = new THREE.Vector3(start.x + ux * reach, 0.08, start.z + uz * reach);
       aimLine.geometry.setFromPoints([start, end]);
-      aimLineMat.color.setHex(qMode ? 0xffe27a : 0x80e7ff);
-      aimLineMat.opacity = qMode ? 0.95 : 0.45;
+      aimLineMat.color.setHex(color);
+      aimLineMat.opacity = opacity;
       aimLine.visible = true;
     } else {
       aimLine.visible = false;
@@ -815,21 +1276,96 @@ function loop(t) {
     teleportRange.position.z = myPos.z;
   }
 
-  // camera follow: fixed world orientation, champion-centered
-  const target = me ? me.mesh.position : new THREE.Vector3();
-  camera.position.set(target.x + CAM_OFFSET.x, CAM_OFFSET.y, target.z + CAM_OFFSET.z);
-  camera.lookAt(target.x, 0.0, target.z + CAM_LOOK_OFFSET_Z);
+  // camera: free mouse-pan with fixed angle, clamped inside lobby.
+  let panX = 0, panZ = 0;
+  if (hasMouse) {
+    if (mouseNDC.x > CAM_PAN_EDGE) {
+      panX = (mouseNDC.x - CAM_PAN_EDGE) / (1 - CAM_PAN_EDGE);
+    } else if (mouseNDC.x < -CAM_PAN_EDGE) {
+      panX = (mouseNDC.x + CAM_PAN_EDGE) / (1 - CAM_PAN_EDGE);
+    }
+    if (mouseNDC.y > CAM_PAN_EDGE) {
+      panZ = -(mouseNDC.y - CAM_PAN_EDGE) / (1 - CAM_PAN_EDGE);
+    } else if (mouseNDC.y < -CAM_PAN_EDGE) {
+      panZ = -(mouseNDC.y + CAM_PAN_EDGE) / (1 - CAM_PAN_EDGE);
+    }
+  }
+  const b = getCameraAnchorBounds();
+  cameraAnchor.x = Math.max(b.minX, Math.min(b.maxX, cameraAnchor.x + panX * CAM_PAN_SPEED * dt));
+  cameraAnchor.y = Math.max(b.minZ, Math.min(b.maxZ, cameraAnchor.y + panZ * CAM_PAN_SPEED * dt));
+
+  const tx = cameraAnchor.x;
+  const tz = cameraAnchor.y;
+  const desiredPosX = tx + CAM_OFFSET.x;
+  const desiredPosY = CAM_OFFSET.y;
+  const desiredPosZ = tz + CAM_OFFSET.z;
+  const desiredLookX = tx;
+  const desiredLookY = 0.0;
+  const desiredLookZ = tz + CAM_LOOK_OFFSET_Z;
+
+  if (!camReady) {
+    camPos.set(desiredPosX, desiredPosY, desiredPosZ);
+    camLook.set(desiredLookX, desiredLookY, desiredLookZ);
+    camReady = true;
+  } else {
+    const camAlpha = 1 - Math.exp(-8 * dt);
+    camDesiredPos.set(desiredPosX, desiredPosY, desiredPosZ);
+    camDesiredLook.set(desiredLookX, desiredLookY, desiredLookZ);
+    camPos.lerp(camDesiredPos, camAlpha);
+    camLook.lerp(camDesiredLook, camAlpha);
+  }
+  camera.position.copy(camPos);
+  camera.lookAt(camLook.x, camLook.y, camLook.z);
   camera.up.set(0, 1, 0);
 
   // cooldown HUD
   const now = performance.now();
   const qRemain = Math.max(0, qReadyAt - now);
-  const qCooldownRatio = Math.max(0, Math.min(1, qRemain / Q_COOLDOWN_MS));
-  slotQMask.style.transform = `scaleY(${qCooldownRatio})`;
-
+  slotQMask.style.transform = `scaleY(${Math.max(0, Math.min(1, qRemain / Q_COOLDOWN_MS))})`;
+  const wRemain = Math.max(0, wActiveUntil - now);
+  slotWMask.style.transform = `scaleY(${Math.max(0, Math.min(1, wRemain / W_DURATION_MS))})`;
+  if (wRemain > 0) {
+    buffWIndicator.hidden = false;
+    buffWIndicator.textContent = `Sprint ${Math.ceil(wRemain / 1000)}s`;
+  } else {
+    buffWIndicator.hidden = true;
+  }
   const eRemain = Math.max(0, eReadyAt - now);
-  const eCooldownRatio = Math.max(0, Math.min(1, eRemain / E_COOLDOWN_MS));
-  slotEMask.style.transform = `scaleY(${eCooldownRatio})`;
+  slotEMask.style.transform = `scaleY(${Math.max(0, Math.min(1, eRemain / E_COOLDOWN_MS))})`;
+  const rRemain = Math.max(0, rReadyAt - now);
+  slotRMask.style.transform = `scaleY(${Math.max(0, Math.min(1, rRemain / R_COOLDOWN_MS))})`;
+
+  // Grey out abilities if mana is insufficient.
+  const canQ = alive && myMana >= Q_COST;
+  const canW = alive && myMana >= W_COST && now >= wActiveUntil;
+  const canE = alive && myMana >= E_COST;
+  const canR = alive && myMana >= R_COST;
+  slotQ.classList.toggle('disabled', !canQ);
+  slotW.classList.toggle('disabled', !canW);
+  slotE.classList.toggle('disabled', !canE);
+  slotR.classList.toggle('disabled', !canR);
+  if (!canQ && qMode) {
+    qMode = false;
+    slotQ.classList.remove('targeting');
+  }
+  if (!canE && teleportMode) {
+    teleportMode = false;
+    slotE.classList.remove('targeting');
+  }
+  if (!canR && rMode) {
+    rMode = false;
+    slotR.classList.remove('targeting');
+  }
+
+  // mana display (smoothly tween toward server-known + local prediction)
+  if (me && typeof me.mana === 'number') {
+    // local regen prediction between snapshots (8/s)
+    if (alive && myMana < startMana) myMana = Math.min(startMana, myMana + 8 * dt);
+    mpText.textContent = `${Math.round(myMana)}/${startMana}`;
+    mpFill.style.width = `${Math.max(0, myMana) / startMana * 100}%`;
+  }
+
+  drawMinimap();
 
   // periodic state send
   if (t - lastSendT > 1000 / SEND_HZ) {

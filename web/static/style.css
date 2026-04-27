@@ -141,27 +141,86 @@ html, body {
   left: 50%;
   bottom: 104px;
   transform: translateX(-50%);
-  min-width: 280px;
+  min-width: 360px;
   background: rgba(18, 31, 54, 0.74);
   border: 1px solid #3a67a5;
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 8px 12px 10px;
   pointer-events: auto;
 }
 
+.hud .buff-indicator {
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid #7ef5ff;
+  color: #d5fbff;
+  background: rgba(40, 122, 145, 0.7);
+  box-shadow: 0 0 12px rgba(126, 245, 255, 0.35);
+}
+
 .hud .hp-bar {
-  height: 14px;
+  position: relative;
+  height: 18px;
   background: #261733;
   border: 1px solid #5a2c7d;
   border-radius: 3px;
   overflow: hidden;
-  margin-top: 4px;
+  margin-top: 0;
 }
 .hud .hp-fill {
   height: 100%;
   background: linear-gradient(to right, #ff4f8c, #ff9d4d);
   width: 100%;
   transition: width 120ms ease;
+}
+
+.hud .mp-bar {
+  position: relative;
+  height: 14px;
+  background: #11203a;
+  border: 1px solid #2c5fa0;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+.hud .mp-fill {
+  height: 100%;
+  background: linear-gradient(to right, #4d8bff, #56d9ff);
+  width: 100%;
+  transition: width 120ms ease;
+}
+
+.hud .bar-value {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+  color: #f6fbff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
+  pointer-events: none;
+}
+
+.hud .minimap-panel {
+  padding: 7px;
+  min-width: 0;
+}
+.hud #minimap {
+  display: block;
+  width: 240px;
+  height: 144px;
+  background: #0a1426;
+  border: 1px solid #2c5fa0;
+  border-radius: 4px;
+  image-rendering: pixelated;
 }
 
 .hud .cd {

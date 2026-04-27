@@ -20,23 +20,20 @@
     <div class="hud">
       <a class="back" href="/">← back</a>
 
-      <div class="panel-tr">
-        <div><b>Players</b></div>
-        <div id="player-list"></div>
-      </div>
-
-      <div class="panel-bl">
-        <div><b>Killfeed</b></div>
-        <div id="killfeed" class="killfeed"></div>
-      </div>
-
-      <div class="panel-br muted">
-        Right click move · Left click attack · Q then left click skillshot · E then left click blink
+      <div class="panel-tr minimap-panel">
+        <canvas id="minimap" width="240" height="144"></canvas>
       </div>
 
       <div class="hp-center-panel">
-        <div class="row"><span>HP</span><span id="hp-text">100/100</span></div>
-        <div class="hp-bar"><div id="hp-fill" class="hp-fill"></div></div>
+        <div id="buff-w-indicator" class="buff-indicator" hidden>Sprint</div>
+        <div class="hp-bar">
+          <div id="hp-fill" class="hp-fill"></div>
+          <div id="hp-text" class="bar-value">100/100</div>
+        </div>
+        <div class="mp-bar">
+          <div id="mp-fill" class="mp-fill"></div>
+          <div id="mp-text" class="bar-value">100/100</div>
+        </div>
       </div>
 
       <div class="ability-bar" id="ability-bar">
@@ -45,18 +42,20 @@
           <div class="label">Mystic Shot</div>
           <div class="cd-mask" id="slot-q-mask"></div>
         </div>
-        <div class="ability-slot disabled" id="slot-w">
+        <div class="ability-slot active" id="slot-w">
           <div class="key">W</div>
-          <div class="label">Soon</div>
+          <div class="label">Sprint</div>
+          <div class="cd-mask" id="slot-w-mask"></div>
         </div>
         <div class="ability-slot active" id="slot-e">
           <div class="key">E</div>
           <div class="label">Teleport</div>
           <div class="cd-mask" id="slot-e-mask"></div>
         </div>
-        <div class="ability-slot disabled" id="slot-r">
+        <div class="ability-slot active" id="slot-r">
           <div class="key">R</div>
-          <div class="label">Soon</div>
+          <div class="label">Trueshot</div>
+          <div class="cd-mask" id="slot-r-mask"></div>
         </div>
       </div>
 
