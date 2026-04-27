@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>superhry · arena</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div class="game-root">
+    <canvas id="game-canvas"></canvas>
+
+    <div class="hud">
+      <a class="back" href="/">← back</a>
+
+      <div class="panel-tr">
+        <div><b>Players</b></div>
+        <div id="player-list"></div>
+      </div>
+
+      <div class="panel-bl">
+        <div><b>Killfeed</b></div>
+        <div id="killfeed" class="killfeed"></div>
+      </div>
+
+      <div class="panel-br muted">
+        Right click move · Left click attack · Q then left click skillshot · E then left click blink
+      </div>
+
+      <div class="hp-center-panel">
+        <div class="row"><span>HP</span><span id="hp-text">100/100</span></div>
+        <div class="hp-bar"><div id="hp-fill" class="hp-fill"></div></div>
+      </div>
+
+      <div class="ability-bar" id="ability-bar">
+        <div class="ability-slot active" id="slot-q">
+          <div class="key">Q</div>
+          <div class="label">Mystic Shot</div>
+          <div class="cd-mask" id="slot-q-mask"></div>
+        </div>
+        <div class="ability-slot disabled" id="slot-w">
+          <div class="key">W</div>
+          <div class="label">Soon</div>
+        </div>
+        <div class="ability-slot active" id="slot-e">
+          <div class="key">E</div>
+          <div class="label">Teleport</div>
+          <div class="cd-mask" id="slot-e-mask"></div>
+        </div>
+        <div class="ability-slot disabled" id="slot-r">
+          <div class="key">R</div>
+          <div class="label">Soon</div>
+        </div>
+      </div>
+
+      <div class="crosshair"></div>
+    </div>
+
+    <div id="name-modal" class="name-modal">
+      <div class="box">
+        <div><b>enter a nickname</b></div>
+        <input id="name-input" maxlength="16" placeholder="player" autofocus />
+        <button id="name-go">join arena</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
