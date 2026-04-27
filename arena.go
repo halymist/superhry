@@ -35,17 +35,32 @@ const (
 	manaRegenPerSec = 8.0
 
 	pickupSpawnMS = 9000
-	maxPickups    = 2
+	maxPickups    = 3
 	pickupAmount  = 20
+	goldAmount    = 1
 	pickupRadius  = 1.2 // pickup-collection distance
 	pickupLifeMS  = 30000
 	npcSayMS      = 7000
 	npcRespawnMS  = 5000
 	dogHP         = 90
 	dogAggroRange = 11.0
+	dogDeaggroRng = 16.0
 	dogTouchRange = 1.15
 	dogTouchDmg   = 14
 	dogHitCDMS    = 900
+
+	reditelMissileSpeed = 7.0
+	reditelMissileRange = 12.0
+	reditelMissileRad   = 0.38
+	reditelMissileDmg   = 18
+	reditelShotCDMS     = 2600
+	reditelGoldDropMS   = 12000
+
+	playerRadius = 0.6
+
+	hpUpgradeDelta   = 20
+	manaUpgradeDelta = 20
+	maxUpgradeLevel  = 5
 )
 
 func manaCost(kind string) int {
@@ -62,6 +77,10 @@ func manaCost(kind string) int {
 	return 0
 }
 
+func upgradeCost(kind string, _ int) int {
+	return 3
+}
+
 type vec2 struct {
 	X float64 `json:"x"`
 	Z float64 `json:"z"`
@@ -75,17 +94,41 @@ type playerState struct {
 	Facing   float64 `json:"facing"`
 	HP       int     `json:"hp"`
 	Mana     int     `json:"mana"`
+	MaxHP    int     `json:"maxHp"`
+	MaxMana  int     `json:"maxMana"`
+	Gold     int     `json:"gold"`
+	UpHP     int     `json:"upHp"`
+	UpMana   int     `json:"upMana"`
+	UpQ      int     `json:"upQ"`
+	UpW      int     `json:"upW"`
+	UpE      int     `json:"upE"`
+	UpR      int     `json:"upR"`
 	Alive    bool    `json:"alive"`
 	RespawnT int64   `json:"respawnAt,omitempty"` // unix ms; 0 if alive
 }
 
 type pickup struct {
 	ID        uint64  `json:"id"`
-	Kind      string  `json:"kind"` // "hp" or "mana"
+	Kind      string  `json:"kind"` // "hp" or "mana" or "gold"
 	X         float64 `json:"x"`
 	Z         float64 `json:"z"`
 	SpawnAtMS int64   `json:"spawnAtMs"`
 	ExpireMS  int64   `json:"expireAtMs"`
+}
+
+type npcProjectile struct {
+	ID    uint64
+	Owner uint64
+	X     float64
+	Z     float64
+	DX    float64
+	DZ    float64
+	Speed float64
+	Range float64
+	Dist  float64
+	Rad   float64
+	Dmg   int
+	Kind  string
 }
 
 type npcState struct {
@@ -104,12 +147,14 @@ type npcState struct {
 }
 
 type npcRuntime struct {
-	state     npcState
-	vx        float64
-	vz        float64
-	nextDirMS int64
-	nextSayMS int64
-	nextHitMS int64
+	state      npcState
+	vx         float64
+	vz         float64
+	nextDirMS  int64
+	nextSayMS  int64
+	nextHitMS  int64
+	nextDropMS int64
+	aggroID    uint64
 }
 
 // --- inbound client messages ---
@@ -150,6 +195,10 @@ type cCast struct {
 
 type cPickup struct {
 	ID uint64 `json:"id"`
+}
+
+type cUpgrade struct {
+	Kind string `json:"kind"` // "hp","mana","q","w","e","r"
 }
 
 // --- outbound server messages ---
@@ -231,6 +280,7 @@ type ArenaHub struct {
 	castEvt  chan castEvent
 	fireEvt  chan fireEvent
 	pickEvt  chan pickEvent
+	upgEvt   chan upgradeEvent
 	respawn  chan uint64
 
 	clients    map[uint64]*client
@@ -240,6 +290,8 @@ type ArenaHub struct {
 	lastPickup time.Time
 	lastTick   time.Time
 	npcs       map[uint64]*npcRuntime
+	npcProjs   map[uint64]*npcProjectile
+	nextNpcPID atomic.Uint64
 }
 
 type stateUpdate struct {
@@ -273,6 +325,11 @@ type pickEvent struct {
 	pickup uint64
 }
 
+type upgradeEvent struct {
+	player uint64
+	kind   string
+}
+
 func NewArenaHub() *ArenaHub {
 	return &ArenaHub{
 		register:   make(chan *client, 16),
@@ -283,11 +340,13 @@ func NewArenaHub() *ArenaHub {
 		castEvt:    make(chan castEvent, 256),
 		fireEvt:    make(chan fireEvent, 256),
 		pickEvt:    make(chan pickEvent, 256),
+		upgEvt:     make(chan upgradeEvent, 256),
 		respawn:    make(chan uint64, 64),
 		clients:    make(map[uint64]*client),
 		pickups:    make(map[uint64]*pickup),
 		lastTick:   time.Now(),
 		npcs:       make(map[uint64]*npcRuntime),
+		npcProjs:   make(map[uint64]*npcProjectile),
 	}
 }
 
@@ -299,9 +358,10 @@ func (h *ArenaHub) initNPCs() {
 		nextSayMS: now + 3000,
 	}
 	h.npcs[1002] = &npcRuntime{
-		state:     npcState{ID: 1002, Kind: "reditel", Name: "ředitel", X: 10, Z: -8, Facing: 0, Scale: 1.0, Alive: true},
-		nextDirMS: now + 900,
-		nextSayMS: now + 1000000,
+		state:      npcState{ID: 1002, Kind: "reditel", Name: "ředitel", X: 10, Z: -8, Facing: 0, Scale: 1.0, Alive: true},
+		nextDirMS:  now + 900,
+		nextSayMS:  now + 1000000,
+		nextDropMS: now + reditelGoldDropMS,
 	}
 	h.npcs[1003] = &npcRuntime{
 		state:     npcState{ID: 1003, Kind: "pes", Name: "pes", X: 2, Z: 2, Facing: 0, Scale: 1.0, HP: dogHP, Alive: true},
@@ -350,11 +410,20 @@ func (h *ArenaHub) Run() {
 		case ev := <-h.pickEvt:
 			h.applyPickup(ev)
 
+		case ev := <-h.upgEvt:
+			h.applyUpgrade(ev)
+
 		case id := <-h.respawn:
 			if c, ok := h.clients[id]; ok {
 				c.mu.Lock()
-				c.state.HP = startHP
-				c.state.Mana = startMana
+				if c.state.MaxHP <= 0 {
+					c.state.MaxHP = startHP
+				}
+				if c.state.MaxMana <= 0 {
+					c.state.MaxMana = startMana
+				}
+				c.state.HP = c.state.MaxHP
+				c.state.Mana = c.state.MaxMana
 				c.state.Alive = true
 				c.state.RespawnT = 0
 				c.state.X = (rand.Float64()*2 - 1) * (mapHalfX - 2)
@@ -375,6 +444,7 @@ func (h *ArenaHub) Run() {
 			h.expirePickups(now)
 			h.maybeSpawnPickup(now)
 			h.updateNPCs(now, dt)
+			h.updateNPCProjectiles(dt)
 			h.sendSnapshot()
 		}
 	}
@@ -425,14 +495,57 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 			speed = 1.45
 		}
 
-		var target *client
-		minD2 := math.MaxFloat64
+		if n.state.Kind == "reditel" {
+			if nowMS >= n.nextDropMS {
+				h.spawnPickup("gold", n.state.X, n.state.Z, true, now)
+				n.nextDropMS = nowMS + reditelGoldDropMS + int64(rand.Intn(5000))
+			}
+			if nowMS >= n.nextHitMS {
+				var target *client
+				minD2 := reditelMissileRange * reditelMissileRange
+				for _, c := range h.clients {
+					c.mu.Lock()
+					alive := c.state.Alive
+					px := c.state.X
+					pz := c.state.Z
+					c.mu.Unlock()
+					if !alive {
+						continue
+					}
+					dx := px - n.state.X
+					dz := pz - n.state.Z
+					d2 := dx*dx + dz*dz
+					if d2 <= minD2 {
+						minD2 = d2
+						target = c
+					}
+				}
+				if target != nil {
+					target.mu.Lock()
+					tx := target.state.X
+					tz := target.state.Z
+					target.mu.Unlock()
+					dx := tx - n.state.X
+					dz := tz - n.state.Z
+					d := math.Hypot(dx, dz)
+					if d > 0.001 {
+						n.state.Facing = math.Atan2(dx, dz)
+						h.spawnNPCProjectile(n.state.ID, n.state.X+dx/d*0.9, n.state.Z+dz/d*0.9, dx/d, dz/d)
+						n.nextHitMS = nowMS + reditelShotCDMS
+					}
+				}
+			}
+		}
+
 		if n.state.Kind == "pes" {
+			closestID := uint64(0)
+			closestD2 := math.MaxFloat64
 			for _, c := range h.clients {
 				c.mu.Lock()
 				alive := c.state.Alive
 				px := c.state.X
 				pz := c.state.Z
+				pid := c.id
 				c.mu.Unlock()
 				if !alive {
 					continue
@@ -440,33 +553,74 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 				dx := px - n.state.X
 				dz := pz - n.state.Z
 				d2 := dx*dx + dz*dz
-				if d2 < minD2 {
-					minD2 = d2
-					target = c
+				if d2 < closestD2 {
+					closestD2 = d2
+					closestID = pid
 				}
 			}
-		}
 
-		if n.state.Kind == "pes" && target != nil && minD2 <= dogAggroRange*dogAggroRange {
-			target.mu.Lock()
-			tx := target.state.X
-			tz := target.state.Z
-			tid := target.id
-			tAlive := target.state.Alive
-			target.mu.Unlock()
-			if tAlive {
-				dx := tx - n.state.X
-				dz := tz - n.state.Z
-				d := math.Hypot(dx, dz)
-				if d > 0.001 {
-					n.vx = dx / d * 2.8
-					n.vz = dz / d * 2.8
-					n.state.Facing = math.Atan2(n.vx, n.vz)
+			hasTarget := false
+			targetID := n.aggroID
+			if targetID != 0 {
+				if tc, ok := h.clients[targetID]; ok {
+					tc.mu.Lock()
+					tAlive := tc.state.Alive
+					tx := tc.state.X
+					tz := tc.state.Z
+					tc.mu.Unlock()
+					if tAlive {
+						dx := tx - n.state.X
+						dz := tz - n.state.Z
+						if dx*dx+dz*dz <= dogDeaggroRng*dogDeaggroRng {
+							hasTarget = true
+						}
+					}
 				}
-				if d <= dogTouchRange && nowMS >= n.nextHitMS {
-					n.nextHitMS = nowMS + dogHitCDMS
-					h.applyHit(hitEvent{shooter: n.state.ID, target: tid, pid: 0, dmg: dogTouchDmg})
+			}
+
+			if !hasTarget {
+				n.aggroID = 0
+				if closestID != 0 && closestD2 <= dogAggroRange*dogAggroRange {
+					n.aggroID = closestID
+					hasTarget = true
+					if nowMS >= n.nextSayMS {
+						n.state.Say = dogLines[rand.Intn(len(dogLines))]
+						n.state.SayUntil = nowMS + npcSayMS
+						n.nextSayMS = nowMS + 12000 + int64(rand.Intn(6000))
+					}
 				}
+			}
+
+			if hasTarget {
+				tc := h.clients[n.aggroID]
+				if tc != nil {
+					tc.mu.Lock()
+					tx := tc.state.X
+					tz := tc.state.Z
+					tid := tc.id
+					tAlive := tc.state.Alive
+					tc.mu.Unlock()
+					if tAlive {
+						dx := tx - n.state.X
+						dz := tz - n.state.Z
+						d := math.Hypot(dx, dz)
+						if d > 0.001 {
+							n.vx = dx / d * 2.8
+							n.vz = dz / d * 2.8
+							n.state.Facing = math.Atan2(n.vx, n.vz)
+						}
+						if d <= dogTouchRange && nowMS >= n.nextHitMS {
+							n.nextHitMS = nowMS + dogHitCDMS
+							h.applyHit(hitEvent{shooter: n.state.ID, target: tid, pid: 0, dmg: dogTouchDmg})
+						}
+					}
+				}
+			} else if nowMS >= n.nextDirMS {
+				ang := rand.Float64() * math.Pi * 2
+				n.vx = math.Sin(ang) * speed
+				n.vz = math.Cos(ang) * speed
+				n.state.Facing = math.Atan2(n.vx, n.vz)
+				n.nextDirMS = nowMS + 1400 + int64(rand.Intn(2600))
 			}
 		} else if nowMS >= n.nextDirMS {
 			ang := rand.Float64() * math.Pi * 2
@@ -520,10 +674,70 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 			}
 		}
 
-		if n.state.Kind == "pes" && nowMS >= n.nextSayMS {
-			n.state.Say = dogLines[rand.Intn(len(dogLines))]
-			n.state.SayUntil = nowMS + npcSayMS
-			n.nextSayMS = nowMS + 5000 + int64(rand.Intn(7000))
+	}
+}
+
+func (h *ArenaHub) spawnNPCProjectile(owner uint64, x, z, dx, dz float64) {
+	id := h.nextNpcPID.Add(1)
+	h.npcProjs[id] = &npcProjectile{
+		ID:    id,
+		Owner: owner,
+		X:     x,
+		Z:     z,
+		DX:    dx,
+		DZ:    dz,
+		Speed: reditelMissileSpeed,
+		Range: reditelMissileRange,
+		Rad:   reditelMissileRad,
+		Dmg:   reditelMissileDmg,
+		Kind:  "reditel",
+	}
+	h.broadcastJSON(sMsg{Type: "fire", Data: sFire{
+		Owner: owner,
+		PID:   id,
+		OX:    x,
+		OZ:    z,
+		DX:    dx,
+		DZ:    dz,
+		Kind:  "reditel",
+		T:     time.Now().UnixMilli(),
+	}})
+}
+
+func (h *ArenaHub) updateNPCProjectiles(dt float64) {
+	for id, pr := range h.npcProjs {
+		stepX := pr.DX * pr.Speed * dt
+		stepZ := pr.DZ * pr.Speed * dt
+		pr.X += stepX
+		pr.Z += stepZ
+		pr.Dist += math.Hypot(stepX, stepZ)
+
+		if pr.Dist > pr.Range || math.Abs(pr.X) > mapHalfX+1 || math.Abs(pr.Z) > mapHalfZ+1 {
+			delete(h.npcProjs, id)
+			continue
+		}
+
+		hit := false
+		for _, c := range h.clients {
+			c.mu.Lock()
+			alive := c.state.Alive
+			px := c.state.X
+			pz := c.state.Z
+			pid := c.id
+			c.mu.Unlock()
+			if !alive {
+				continue
+			}
+			dx := px - pr.X
+			dz := pz - pr.Z
+			if dx*dx+dz*dz <= (pr.Rad+playerRadius)*(pr.Rad+playerRadius) {
+				h.applyHit(hitEvent{shooter: pr.Owner, target: pid, pid: pr.ID, dmg: pr.Dmg})
+				hit = true
+				break
+			}
+		}
+		if hit {
+			delete(h.npcProjs, id)
 		}
 	}
 }
@@ -541,27 +755,35 @@ func (h *ArenaHub) regen(dt float64) {
 	for _, c := range h.clients {
 		c.mu.Lock()
 		if c.state.Alive {
-			if c.state.HP < startHP {
+			maxHP := c.state.MaxHP
+			if maxHP <= 0 {
+				maxHP = startHP
+			}
+			maxMana := c.state.MaxMana
+			if maxMana <= 0 {
+				maxMana = startMana
+			}
+			if c.state.HP < maxHP {
 				c.hpAcc += hpRegenPerSec * dt
 				if c.hpAcc >= 1 {
 					add := int(c.hpAcc)
 					c.hpAcc -= float64(add)
 					c.state.HP += add
-					if c.state.HP > startHP {
-						c.state.HP = startHP
+					if c.state.HP > maxHP {
+						c.state.HP = maxHP
 					}
 				}
 			} else {
 				c.hpAcc = 0
 			}
-			if c.state.Mana < startMana {
+			if c.state.Mana < maxMana {
 				c.manaAcc += manaRegenPerSec * dt
 				if c.manaAcc >= 1 {
 					add := int(c.manaAcc)
 					c.manaAcc -= float64(add)
 					c.state.Mana += add
-					if c.state.Mana > startMana {
-						c.state.Mana = startMana
+					if c.state.Mana > maxMana {
+						c.state.Mana = maxMana
 					}
 				}
 			} else {
@@ -580,17 +802,29 @@ func (h *ArenaHub) maybeSpawnPickup(now time.Time) {
 		return
 	}
 	h.lastPickup = now
+	kindRoll := rand.Intn(4)
 	kind := "hp"
-	if rand.Intn(2) == 0 {
+	if kindRoll == 1 {
 		kind = "mana"
+	} else if kindRoll == 2 || kindRoll == 3 {
+		kind = "gold"
 	}
+	h.spawnPickup(kind, 0, 0, false, now)
+}
+
+func (h *ArenaHub) spawnPickup(kind string, x, z float64, exact bool, now time.Time) {
 	id := h.nextPickID.Add(1)
 	nowMS := now.UnixMilli()
+	px, pz := x, z
+	if !exact {
+		px = (rand.Float64()*2 - 1) * (mapHalfX - 2)
+		pz = (rand.Float64()*2 - 1) * (mapHalfZ - 2)
+	}
 	p := &pickup{
 		ID:        id,
 		Kind:      kind,
-		X:         (rand.Float64()*2 - 1) * (mapHalfX - 2),
-		Z:         (rand.Float64()*2 - 1) * (mapHalfZ - 2),
+		X:         clamp(px, -mapHalfX+1, mapHalfX-1),
+		Z:         clamp(pz, -mapHalfZ+1, mapHalfZ-1),
 		SpawnAtMS: nowMS,
 		ExpireMS:  nowMS + pickupLifeMS,
 	}
@@ -659,14 +893,87 @@ func (h *ArenaHub) applyPickup(ev pickEvent) {
 	switch p.Kind {
 	case "hp":
 		c.state.HP += pickupAmount
-		if c.state.HP > startHP {
-			c.state.HP = startHP
+		maxHP := c.state.MaxHP
+		if maxHP <= 0 {
+			maxHP = startHP
+		}
+		if c.state.HP > maxHP {
+			c.state.HP = maxHP
 		}
 	case "mana":
 		c.state.Mana += pickupAmount
-		if c.state.Mana > startMana {
-			c.state.Mana = startMana
+		maxMana := c.state.MaxMana
+		if maxMana <= 0 {
+			maxMana = startMana
 		}
+		if c.state.Mana > maxMana {
+			c.state.Mana = maxMana
+		}
+	case "gold":
+		c.state.Gold += goldAmount
+	}
+}
+
+func (h *ArenaHub) applyUpgrade(ev upgradeEvent) {
+	c, ok := h.clients[ev.player]
+	if !ok {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.state.Alive {
+		return
+	}
+
+	curLvl := 0
+	switch ev.kind {
+	case "hp":
+		curLvl = c.state.UpHP
+	case "mana":
+		curLvl = c.state.UpMana
+	case "q":
+		curLvl = c.state.UpQ
+	case "w":
+		curLvl = c.state.UpW
+	case "e":
+		curLvl = c.state.UpE
+	case "r":
+		curLvl = c.state.UpR
+	default:
+		return
+	}
+	if curLvl >= maxUpgradeLevel {
+		return
+	}
+	cost := upgradeCost(ev.kind, curLvl)
+	if c.state.Gold < cost {
+		return
+	}
+	c.state.Gold -= cost
+
+	switch ev.kind {
+	case "hp":
+		c.state.UpHP++
+		c.state.MaxHP += hpUpgradeDelta
+		c.state.HP += hpUpgradeDelta
+		if c.state.HP > c.state.MaxHP {
+			c.state.HP = c.state.MaxHP
+		}
+	case "mana":
+		c.state.UpMana++
+		c.state.MaxMana += manaUpgradeDelta
+		c.state.Mana += manaUpgradeDelta
+		if c.state.Mana > c.state.MaxMana {
+			c.state.Mana = c.state.MaxMana
+		}
+	case "q":
+		c.state.UpQ++
+	case "w":
+		c.state.UpW++
+	case "e":
+		c.state.UpE++
+	case "r":
+		c.state.UpR++
 	}
 }
 
@@ -692,6 +999,7 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 			n.state.RespawnT = time.Now().UnixMilli() + npcRespawnMS
 			n.state.Say = ""
 			n.state.SayUntil = 0
+			h.spawnPickup("gold", n.state.X, n.state.Z, true, time.Now())
 		}
 		h.broadcastJSON(sMsg{Type: "hit", Data: sHit{
 			Shooter: ev.shooter, Target: ev.target, PID: ev.pid,
@@ -708,8 +1016,12 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 	if dmg <= 0 {
 		dmg = hitDamage
 	}
-	if dmg > startHP {
-		dmg = startHP
+	maxHP := target.state.MaxHP
+	if maxHP <= 0 {
+		maxHP = startHP
+	}
+	if dmg > maxHP {
+		dmg = maxHP
 	}
 	target.state.HP -= dmg
 	killed := target.state.HP <= 0
@@ -796,13 +1108,16 @@ func (h *ArenaHub) ServeWS(w http.ResponseWriter, r *http.Request) {
 		conn: conn,
 		send: make(chan []byte, sendQueueLen),
 		state: playerState{
-			ID:    id,
-			Name:  "player",
-			X:     (rand.Float64()*2 - 1) * (mapHalfX - 2),
-			Z:     (rand.Float64()*2 - 1) * (mapHalfZ - 2),
-			HP:    startHP,
-			Mana:  startMana,
-			Alive: true,
+			ID:      id,
+			Name:    "player",
+			X:       (rand.Float64()*2 - 1) * (mapHalfX - 2),
+			Z:       (rand.Float64()*2 - 1) * (mapHalfZ - 2),
+			HP:      startHP,
+			Mana:    startMana,
+			MaxHP:   startHP,
+			MaxMana: startMana,
+			Gold:    0,
+			Alive:   true,
 		},
 	}
 
@@ -917,6 +1232,16 @@ func (c *client) readLoop() {
 			}
 			select {
 			case c.hub.pickEvt <- pickEvent{player: c.id, pickup: pk.ID}:
+			default:
+			}
+
+		case "upgrade":
+			var up cUpgrade
+			if err := json.Unmarshal(m.Data, &up); err != nil {
+				continue
+			}
+			select {
+			case c.hub.upgEvt <- upgradeEvent{player: c.id, kind: up.Kind}:
 			default:
 			}
 

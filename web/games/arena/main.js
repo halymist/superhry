@@ -47,9 +47,10 @@ const E_IN_MS  = 140;
 const E_COST   = 50;
 
 // W sprint
-const W_SPEED_MULT = 1.5;
+const W_SPEED_MULT = 1.3;
 const W_DURATION_MS = 8000;
 const W_COST = 30;
+const UP_MAX = 5;
 
 // camera pan
 const CAM_PAN_EDGE = 0.82;
@@ -61,6 +62,39 @@ const PICKUP_RADIUS = 0.6;
 const INTERP_DELAY_MS = 120; // remote interpolation
 const SEND_HZ = 20;
 
+function upgradeCost(kind, lvl) {
+  return 3;
+}
+
+function myAbilityStats() {
+  return {
+    qDmg: Q_DAMAGE + myUp.q * 10,
+    wDuration: W_DURATION_MS + myUp.w * 1200,
+    eRange: E_RANGE + myUp.e * 1.1,
+    rRadius: R_RADIUS + myUp.r * 0.18,
+    rDmg: R_DAMAGE + myUp.r * 18,
+  };
+}
+
+function refreshSpellbookUi() {
+  if (!spellbookPanel) return;
+  upHpEl.textContent = `${myUp.hp}/${UP_MAX}`;
+  upManaEl.textContent = `${myUp.mana}/${UP_MAX}`;
+  upQEl.textContent = `${myUp.q}/${UP_MAX}`;
+  upWEl.textContent = `${myUp.w}/${UP_MAX}`;
+  upEEl.textContent = `${myUp.e}/${UP_MAX}`;
+  upREl.textContent = `${myUp.r}/${UP_MAX}`;
+  const lvlByKind = { hp: myUp.hp, mana: myUp.mana, q: myUp.q, w: myUp.w, e: myUp.e, r: myUp.r };
+  for (const btn of spellbookRows) {
+    const kind = btn.dataset.upgrade;
+    const lvl = lvlByKind[kind] || 0;
+    const cost = upgradeCost(kind, lvl);
+    btn.title = lvl >= UP_MAX ? 'MAX' : `Cost: ${cost} gold`;
+    btn.disabled = lvl >= UP_MAX || myGold < cost;
+  }
+  if (goldText) goldText.textContent = String(myGold);
+}
+
 // ---------------- DOM / modal ----------------
 const nameModal = document.getElementById('name-modal');
 const nameInput = document.getElementById('name-input');
@@ -70,6 +104,7 @@ const hpText = document.getElementById('hp-text');
 const hpFill = document.getElementById('hp-fill');
 const mpText = document.getElementById('mp-text');
 const mpFill = document.getElementById('mp-fill');
+const goldText = document.getElementById('gold-text');
 const buffWIndicator = document.getElementById('buff-w-indicator');
 const slotQ     = document.getElementById('slot-q');
 const slotQMask = document.getElementById('slot-q-mask');
@@ -81,6 +116,14 @@ const slotR     = document.getElementById('slot-r');
 const slotRMask = document.getElementById('slot-r-mask');
 const minimapCanvas = document.getElementById('minimap');
 const minimapCtx = minimapCanvas.getContext('2d');
+const spellbookPanel = document.getElementById('spellbook-panel');
+const spellbookRows = Array.from(document.querySelectorAll('#spellbook-panel .sb-row'));
+const upHpEl = document.getElementById('u-hp');
+const upManaEl = document.getElementById('u-mana');
+const upQEl = document.getElementById('u-q');
+const upWEl = document.getElementById('u-w');
+const upEEl = document.getElementById('u-e');
+const upREl = document.getElementById('u-r');
 
 const savedName = sessionStorage.getItem('superhry-name') || '';
 nameInput.value = savedName;
@@ -412,9 +455,10 @@ function updateNPCsFromSnapshot(snap) {
     if (!obj) {
       const mesh = makeNPCMesh(n);
       scene.add(mesh);
-      obj = { mesh, kind: n.kind, name: n.name, hp: n.hp || 0, alive: n.alive !== false, say: '', sayUntil: 0 };
+      obj = { id: n.id, mesh, kind: n.kind, name: n.name, hp: n.hp || 0, alive: n.alive !== false, say: '', sayUntil: 0 };
       npcs.set(n.id, obj);
     }
+    obj.id = n.id;
     obj.kind = n.kind;
     obj.name = n.name;
     obj.hp = n.hp || 0;
@@ -464,6 +508,8 @@ let serverHalfX = GROUND_HX, serverHalfZ = GROUND_HZ;
 let startHP = 100;
 let startMana = 100;
 let myMana = 100; // optimistic local prediction; corrected by snapshots
+let myGold = 0;
+let myUp = { hp: 0, mana: 0, q: 0, w: 0, e: 0, r: 0 };
 
 const players = new Map(); // id -> { mesh, name, hp, alive, snapshots: [{t,x,z,facing}], lastSeen }
 const projectiles = []; // {pid, owner, x, z, vx, vz, dist, max, mesh, hitDone}
@@ -572,6 +618,9 @@ function onMessage(raw) {
       startHP = m.data.startHp;
       startMana = m.data.startMana || 100;
       myMana = startMana;
+      myGold = 0;
+      myUp = { hp: 0, mana: 0, q: 0, w: 0, e: 0, r: 0 };
+      refreshSpellbookUi();
       break;
 
     case 'snap':
@@ -614,9 +663,18 @@ function handleSnapshot(snap) {
     const wasAlive = pl.alive;
     pl.hp = p.hp;
     pl.mana = p.mana;
+    pl.maxHp = p.maxHp || startHP;
+    pl.maxMana = p.maxMana || startMana;
+    pl.gold = p.gold || 0;
+    pl.upHp = p.upHp || 0;
+    pl.upMana = p.upMana || 0;
+    pl.upQ = p.upQ || 0;
+    pl.upW = p.upW || 0;
+    pl.upE = p.upE || 0;
+    pl.upR = p.upR || 0;
     pl.alive = p.alive;
     if (pl.mesh.userData.hpSprite) {
-      setHpSprite(pl.mesh.userData.hpSprite, p.hp, startHP);
+      setHpSprite(pl.mesh.userData.hpSprite, p.hp, pl.maxHp);
       pl.mesh.userData.hpSprite.visible = p.id !== myId && p.alive;
     }
     if (p.id !== myId) {
@@ -634,6 +692,7 @@ function handleSnapshot(snap) {
       if (pl._initSync !== true || (!wasAlive && p.alive) || desync > 2.5) {
         myPos.x = p.x; myPos.z = p.z;
         myVel.set(0, 0);
+        centerCameraOnMe();
         pl._initSync = true;
       }
     }
@@ -645,8 +704,10 @@ function handleSnapshot(snap) {
   // update my HP/Mana from snapshot
   const me = players.get(myId);
   if (me) {
-    hpText.textContent = `${me.hp}/${startHP}`;
-    hpFill.style.width = `${Math.max(0, me.hp) / startHP * 100}%`;
+    const maxHp = me.maxHp || startHP;
+    const maxMana = me.maxMana || startMana;
+    hpText.textContent = `${me.hp}/${maxHp}`;
+    hpFill.style.width = `${Math.max(0, me.hp) / maxHp * 100}%`;
     if (typeof me.mana === 'number') {
       // Server is authoritative; if local prediction undershot, snap up.
       if (me.mana > myMana) myMana = me.mana;
@@ -654,8 +715,18 @@ function handleSnapshot(snap) {
       // optimistically or another cast was rejected).
       if (me.mana < myMana - 2) myMana = me.mana;
     }
-    mpText.textContent = `${Math.round(myMana)}/${startMana}`;
-    mpFill.style.width = `${Math.max(0, myMana) / startMana * 100}%`;
+    myGold = me.gold || 0;
+    myUp = {
+      hp: me.upHp || 0,
+      mana: me.upMana || 0,
+      q: me.upQ || 0,
+      w: me.upW || 0,
+      e: me.upE || 0,
+      r: me.upR || 0,
+    };
+    mpText.textContent = `${Math.round(myMana)}/${maxMana}`;
+    mpFill.style.width = `${Math.max(0, myMana) / maxMana * 100}%`;
+    refreshSpellbookUi();
   }
   // pickups diff
   const pkSeen = new Set();
@@ -770,6 +841,14 @@ slotR.addEventListener('click', () => {
   tryEnterRMode();
 });
 
+for (const row of spellbookRows) {
+  row.addEventListener('click', () => {
+    const kind = row.dataset.upgrade;
+    if (!kind) return;
+    send({ type: 'upgrade', data: { kind } });
+  });
+}
+
 const mouseWorld = new THREE.Vector3(); // intersection with ground
 const mouseNDC = new THREE.Vector2();
 let hasMouse = false;
@@ -813,6 +892,7 @@ canvas.addEventListener('contextmenu', e => {
 minimapCanvas.addEventListener('contextmenu', e => e.preventDefault());
 document.querySelector('.hp-center-panel')?.addEventListener('contextmenu', e => e.preventDefault());
 document.getElementById('ability-bar')?.addEventListener('contextmenu', e => e.preventDefault());
+spellbookPanel?.addEventListener('contextmenu', e => e.preventDefault());
 
 const raycaster = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -902,7 +982,8 @@ function tryCastW() {
   const now = performance.now();
   if (now < wActiveUntil) return;
   if (myMana < W_COST) return;
-  wActiveUntil = now + W_DURATION_MS;
+  const stats = myAbilityStats();
+  wActiveUntil = now + stats.wDuration;
   myMana = Math.max(0, myMana - W_COST);
   send({ type: 'cast', data: { kind: 'w' } });
 }
@@ -931,7 +1012,8 @@ function tryTeleport() {
   if (dist < 0.01) return;
 
   const ux = dx / dist, uz = dz / dist;
-  const want = Math.min(E_RANGE, dist);
+  const stats = myAbilityStats();
+  const want = Math.min(stats.eRange, dist);
   // E phases through walls/projectiles: just step to map-bounded destination.
   let nx = myPos.x + ux * want;
   let nz = myPos.z + uz * want;
@@ -1015,26 +1097,31 @@ function fireProjectile(kind) {
   const pid = myProjectileSeq++;
   const ox = myPos.x + dx * (PLAYER_RADIUS + 0.3);
   const oz = myPos.z + dz * (PLAYER_RADIUS + 0.3);
-  spawnProjectile({ owner: myId, pid, ox, oz, dx, dz, kind });
+  const boost = myAbilityStats();
+  spawnProjectile({ owner: myId, pid, ox, oz, dx, dz, kind, boost });
   send({ type: 'fire', data: { pid, ox, oz, dx, dz, kind } });
 }
 
-function projectileSpec(kind) {
+function projectileSpec(kind, boost = null) {
+  const b = boost || { qDmg: Q_DAMAGE, rRadius: R_RADIUS, rDmg: R_DAMAGE };
   switch (kind) {
+    case 'reditel':
+      return { radius: 0.38, startSpeed: 7.0, maxSpeed: 7.0, accel: 0, range: 12.0, dmg: 18, pierce: true };
     case 'r':
-      return { radius: R_RADIUS, startSpeed: R_SPEED_START, maxSpeed: R_SPEED_MAX, accel: R_ACCEL, range: R_RANGE, dmg: R_DAMAGE, pierce: true };
+      return { radius: b.rRadius, startSpeed: R_SPEED_START, maxSpeed: R_SPEED_MAX, accel: R_ACCEL, range: R_RANGE, dmg: b.rDmg, pierce: true };
     case 'aa':
       return { radius: AA_RADIUS, startSpeed: AA_SPEED_START, maxSpeed: AA_SPEED_MAX, accel: AA_ACCEL, range: AA_RANGE, dmg: AA_DAMAGE, pierce: false };
     default:
-      return { radius: Q_RADIUS, startSpeed: Q_SPEED_START, maxSpeed: Q_SPEED_MAX, accel: Q_ACCEL, range: Q_RANGE, dmg: Q_DAMAGE, pierce: false };
+      return { radius: Q_RADIUS, startSpeed: Q_SPEED_START, maxSpeed: Q_SPEED_MAX, accel: Q_ACCEL, range: Q_RANGE, dmg: b.qDmg, pierce: false };
   }
 }
 
 function spawnProjectile(p) {
   const kind = p.kind || 'q';
-  const spec = projectileSpec(kind);
+  const spec = projectileSpec(kind, p.boost || null);
   let color;
-  if (kind === 'r')      color = p.owner === myId ? 0xff7df6 : 0xff5dc8;
+  if (kind === 'reditel') color = 0xffc46b;
+  else if (kind === 'r')      color = p.owner === myId ? 0xff7df6 : 0xff5dc8;
   else if (kind === 'aa') color = p.owner === myId ? 0xa6f0ff : 0xfff0a0;
   else                    color = p.owner === myId ? 0xffe48a : 0xff9b66;
 
@@ -1045,7 +1132,7 @@ function spawnProjectile(p) {
   mesh.position.set(p.ox, 1.0, p.oz);
   scene.add(mesh);
 
-  const light = new THREE.PointLight(color, kind === 'r' ? 1.6 : (kind === 'q' ? 1.0 : 0.5), kind === 'r' ? 8 : (kind === 'q' ? 5 : 3));
+  const light = new THREE.PointLight(color, kind === 'r' ? 1.6 : (kind === 'q' ? 1.0 : 0.5), kind === 'r' ? 8 : (kind === 'q' ? 5 : (kind === 'reditel' ? 5 : 3)));
   mesh.add(light);
 
   projectiles.push({
@@ -1079,6 +1166,24 @@ function updateProjectiles(dt) {
 
     // wall collision (R pierces walls)
     if (!pr.pierce && pointInObstacle(pr.x, pr.z, pr.radius)) {
+      disposeProjectile(i);
+      continue;
+    }
+
+    // neutral NPCs can body-block projectiles
+    let blockedByNpc = false;
+    for (const n of npcs.values()) {
+      if (!n.alive || n.kind === 'pes') continue;
+      if (Number(n.id) === pr.owner) continue;
+      const dxn = n.mesh.position.x - pr.x;
+      const dzn = n.mesh.position.z - pr.z;
+      const nRad = n.kind === 'reditel' ? 1.05 : 0.72;
+      if (dxn * dxn + dzn * dzn <= (pr.radius + nRad) ** 2) {
+        blockedByNpc = true;
+        break;
+      }
+    }
+    if (blockedByNpc) {
       disposeProjectile(i);
       continue;
     }
@@ -1146,7 +1251,8 @@ function disposeProjectile(i) {
 // ---------------- pickups ----------------
 function spawnPickupMesh(pk) {
   const isHP = pk.kind === 'hp';
-  const color = isHP ? 0xff5d8c : 0x56d9ff;
+  const isGold = pk.kind === 'gold';
+  const color = isHP ? 0xff5d8c : (isGold ? 0xffd45b : 0x56d9ff);
   const baseOpacity = 0.55;
   const g = new THREE.Group();
   const orbMat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.85, transparent: true, opacity: 1.0 });
@@ -1244,7 +1350,7 @@ function drawMinimap() {
   }
   // pickups
   for (const pk of pickups.values()) {
-    ctx.fillStyle = pk.kind === 'hp' ? '#ff5d8c' : '#56d9ff';
+    ctx.fillStyle = pk.kind === 'hp' ? '#ff5d8c' : (pk.kind === 'gold' ? '#ffd45b' : '#56d9ff');
     ctx.beginPath();
     ctx.arc(sx(pk.x), sz(pk.z), 2.5, 0, Math.PI * 2);
     ctx.fill();
@@ -1483,8 +1589,11 @@ function loop(t) {
 
   teleportRange.visible = teleportMode && alive;
   if (teleportRange.visible) {
+    const stats = myAbilityStats();
     teleportRange.position.x = myPos.x;
     teleportRange.position.z = myPos.z;
+    const s = stats.eRange / E_RANGE;
+    teleportRange.scale.set(s, s, 1);
   }
 
   // camera: free mouse-pan with fixed angle, clamped inside lobby.
@@ -1531,10 +1640,11 @@ function loop(t) {
 
   // cooldown HUD
   const now = performance.now();
+  const statsNow = myAbilityStats();
   const qRemain = Math.max(0, qReadyAt - now);
   slotQMask.style.transform = `scaleY(${Math.max(0, Math.min(1, qRemain / Q_COOLDOWN_MS))})`;
   const wRemain = Math.max(0, wActiveUntil - now);
-  slotWMask.style.transform = `scaleY(${Math.max(0, Math.min(1, wRemain / W_DURATION_MS))})`;
+  slotWMask.style.transform = `scaleY(${Math.max(0, Math.min(1, wRemain / statsNow.wDuration))})`;
   if (wRemain > 0) {
     buffWIndicator.hidden = false;
     buffWIndicator.textContent = `Sprint ${Math.ceil(wRemain / 1000)}s`;
@@ -1570,10 +1680,11 @@ function loop(t) {
 
   // mana display (smoothly tween toward server-known + local prediction)
   if (me && typeof me.mana === 'number') {
+    const maxMana = me.maxMana || startMana;
     // local regen prediction between snapshots (8/s)
-    if (alive && myMana < startMana) myMana = Math.min(startMana, myMana + 8 * dt);
-    mpText.textContent = `${Math.round(myMana)}/${startMana}`;
-    mpFill.style.width = `${Math.max(0, myMana) / startMana * 100}%`;
+    if (alive && myMana < maxMana) myMana = Math.min(maxMana, myMana + 8 * dt);
+    mpText.textContent = `${Math.round(myMana)}/${maxMana}`;
+    mpFill.style.width = `${Math.max(0, myMana) / maxMana * 100}%`;
   }
 
   drawMinimap();
