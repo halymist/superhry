@@ -39,7 +39,13 @@ const (
 	pickupAmount  = 20
 	pickupRadius  = 1.2 // pickup-collection distance
 	pickupLifeMS  = 30000
-	npcSayMS      = 4000
+	npcSayMS      = 7000
+	npcRespawnMS  = 5000
+	dogHP         = 90
+	dogAggroRange = 11.0
+	dogTouchRange = 1.15
+	dogTouchDmg   = 14
+	dogHitCDMS    = 900
 )
 
 func manaCost(kind string) int {
@@ -90,6 +96,9 @@ type npcState struct {
 	Z        float64 `json:"z"`
 	Facing   float64 `json:"facing"`
 	Scale    float64 `json:"scale"`
+	HP       int     `json:"hp,omitempty"`
+	Alive    bool    `json:"alive"`
+	RespawnT int64   `json:"respawnAt,omitempty"`
 	Say      string  `json:"say,omitempty"`
 	SayUntil int64   `json:"sayUntil,omitempty"`
 }
@@ -100,6 +109,7 @@ type npcRuntime struct {
 	vz        float64
 	nextDirMS int64
 	nextSayMS int64
+	nextHitMS int64
 }
 
 // --- inbound client messages ---
@@ -284,14 +294,19 @@ func NewArenaHub() *ArenaHub {
 func (h *ArenaHub) initNPCs() {
 	now := time.Now().UnixMilli()
 	h.npcs[1001] = &npcRuntime{
-		state: npcState{ID: 1001, Kind: "namestek", Name: "namestek", X: -6, Z: 4, Facing: 0, Scale: 1.0},
+		state:     npcState{ID: 1001, Kind: "namestek", Name: "namestek", X: -6, Z: 4, Facing: 0, Scale: 1.0, Alive: true},
 		nextDirMS: now + 1200,
 		nextSayMS: now + 3000,
 	}
 	h.npcs[1002] = &npcRuntime{
-		state: npcState{ID: 1002, Kind: "reditel", Name: "ředitel", X: 10, Z: -8, Facing: 0, Scale: 1.8},
+		state:     npcState{ID: 1002, Kind: "reditel", Name: "ředitel", X: 10, Z: -8, Facing: 0, Scale: 1.0, Alive: true},
 		nextDirMS: now + 900,
 		nextSayMS: now + 1000000,
+	}
+	h.npcs[1003] = &npcRuntime{
+		state:     npcState{ID: 1003, Kind: "pes", Name: "pes", X: 2, Z: 2, Facing: 0, Scale: 1.0, HP: dogHP, Alive: true},
+		nextDirMS: now + 1000,
+		nextSayMS: now + 2600,
 	}
 }
 
@@ -375,14 +390,85 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 		"hledam martina",
 		"nevidel nekdo martina?",
 	}
+	dogLines := []string{
+		"woof woof",
+		"grrr",
+		"haf haf",
+		"vrrr",
+		"au au",
+	}
 
 	for _, n := range h.npcs {
+		if !n.state.Alive {
+			if n.state.RespawnT > 0 && nowMS >= n.state.RespawnT {
+				n.state.Alive = true
+				n.state.RespawnT = 0
+				n.state.X = (rand.Float64()*2 - 1) * (mapHalfX - 2)
+				n.state.Z = (rand.Float64()*2 - 1) * (mapHalfZ - 2)
+				n.vx = 0
+				n.vz = 0
+				n.nextDirMS = nowMS + 600
+				n.nextSayMS = nowMS + 2400
+				n.nextHitMS = 0
+				if n.state.Kind == "pes" {
+					n.state.HP = dogHP
+				}
+			}
+			continue
+		}
+
 		speed := 1.3
 		if n.state.Kind == "reditel" {
 			speed = 0.9
 		}
+		if n.state.Kind == "pes" {
+			speed = 1.45
+		}
 
-		if nowMS >= n.nextDirMS {
+		var target *client
+		minD2 := math.MaxFloat64
+		if n.state.Kind == "pes" {
+			for _, c := range h.clients {
+				c.mu.Lock()
+				alive := c.state.Alive
+				px := c.state.X
+				pz := c.state.Z
+				c.mu.Unlock()
+				if !alive {
+					continue
+				}
+				dx := px - n.state.X
+				dz := pz - n.state.Z
+				d2 := dx*dx + dz*dz
+				if d2 < minD2 {
+					minD2 = d2
+					target = c
+				}
+			}
+		}
+
+		if n.state.Kind == "pes" && target != nil && minD2 <= dogAggroRange*dogAggroRange {
+			target.mu.Lock()
+			tx := target.state.X
+			tz := target.state.Z
+			tid := target.id
+			tAlive := target.state.Alive
+			target.mu.Unlock()
+			if tAlive {
+				dx := tx - n.state.X
+				dz := tz - n.state.Z
+				d := math.Hypot(dx, dz)
+				if d > 0.001 {
+					n.vx = dx / d * 2.8
+					n.vz = dz / d * 2.8
+					n.state.Facing = math.Atan2(n.vx, n.vz)
+				}
+				if d <= dogTouchRange && nowMS >= n.nextHitMS {
+					n.nextHitMS = nowMS + dogHitCDMS
+					h.applyHit(hitEvent{shooter: n.state.ID, target: tid, pid: 0, dmg: dogTouchDmg})
+				}
+			}
+		} else if nowMS >= n.nextDirMS {
 			ang := rand.Float64() * math.Pi * 2
 			n.vx = math.Sin(ang) * speed
 			n.vz = math.Cos(ang) * speed
@@ -432,6 +518,12 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 			} else {
 				n.nextSayMS = nowMS + 2500
 			}
+		}
+
+		if n.state.Kind == "pes" && nowMS >= n.nextSayMS {
+			n.state.Say = dogLines[rand.Intn(len(dogLines))]
+			n.state.SayUntil = nowMS + npcSayMS
+			n.nextSayMS = nowMS + 5000 + int64(rand.Intn(7000))
 		}
 	}
 }
@@ -581,6 +673,30 @@ func (h *ArenaHub) applyPickup(ev pickEvent) {
 func (h *ArenaHub) applyHit(ev hitEvent) {
 	target, ok := h.clients[ev.target]
 	if !ok {
+		n, isNPC := h.npcs[ev.target]
+		if !isNPC || n.state.Kind != "pes" || !n.state.Alive {
+			return
+		}
+		dmg := ev.dmg
+		if dmg <= 0 {
+			dmg = hitDamage
+		}
+		if dmg > dogHP {
+			dmg = dogHP
+		}
+		n.state.HP -= dmg
+		killed := n.state.HP <= 0
+		if killed {
+			n.state.HP = 0
+			n.state.Alive = false
+			n.state.RespawnT = time.Now().UnixMilli() + npcRespawnMS
+			n.state.Say = ""
+			n.state.SayUntil = 0
+		}
+		h.broadcastJSON(sMsg{Type: "hit", Data: sHit{
+			Shooter: ev.shooter, Target: ev.target, PID: ev.pid,
+			HP: n.state.HP, Killed: killed, T: time.Now().UnixMilli(),
+		}})
 		return
 	}
 	target.mu.Lock()

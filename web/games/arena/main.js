@@ -185,14 +185,14 @@ function makeBody(color) {
     new THREE.SphereGeometry(0.17, 14, 10),
     new THREE.MeshStandardMaterial({ color: 0xe8f6ff, emissive: 0x9adfff, emissiveIntensity: 0.38 })
   );
-  face.position.set(0, 1.06, -0.62);
+  face.position.set(0, 1.06, 0.62);
   g.add(face);
 
   const eyeL = new THREE.Mesh(
     new THREE.SphereGeometry(0.04, 10, 8),
     new THREE.MeshStandardMaterial({ color: 0x11253d, emissive: 0x8de7ff, emissiveIntensity: 0.5 })
   );
-  eyeL.position.set(-0.055, 1.08, -0.74);
+  eyeL.position.set(-0.055, 1.08, 0.74);
   g.add(eyeL);
   const eyeR = eyeL.clone();
   eyeR.position.x = 0.055;
@@ -234,6 +234,45 @@ function makeNameSprite(text) {
   sp.userData.ctx = ctx;
   sp.userData.tex = tex;
   return sp;
+}
+function makeTalkSprite(text) {
+  const c = document.createElement('canvas');
+  c.width = 420; c.height = 76;
+  const ctx = c.getContext('2d');
+  drawTalkSprite(ctx, text || '');
+  const tex = new THREE.CanvasTexture(c);
+  tex.minFilter = THREE.LinearFilter;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+  const sp = new THREE.Sprite(mat);
+  sp.scale.set(3.8, 0.72, 1);
+  sp.userData.ctx = ctx;
+  sp.userData.tex = tex;
+  return sp;
+}
+function drawTalkSprite(ctx, text) {
+  ctx.clearRect(0, 0, 420, 76);
+  if (!text) return;
+  ctx.fillStyle = 'rgba(0,0,0,0.65)';
+  roundRect(ctx, 6, 8, 408, 56, 10);
+  ctx.fill();
+  ctx.font = 'bold 28px ui-monospace, Consolas, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#e8f7ff';
+  ctx.fillText(text, 210, 36);
+}
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function setTalkSprite(sp, text) {
+  drawTalkSprite(sp.userData.ctx, text || '');
+  sp.userData.tex.needsUpdate = true;
 }
 function makeHpSprite() {
   const c = document.createElement('canvas');
@@ -283,6 +322,141 @@ function setNameSprite(sp, text, color = '#e6e8ee') {
   sp.userData.tex.needsUpdate = true;
 }
 
+function makeNPCMesh(n) {
+  const g = new THREE.Group();
+  const isReditel = n.kind === 'reditel';
+  const isDog = n.kind === 'pes';
+  if (isDog) {
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x8c6a45, roughness: 0.7, metalness: 0.02, emissive: 0x3d2a18, emissiveIntensity: 0.2 });
+    const headMat = new THREE.MeshStandardMaterial({ color: 0xa67b4f, roughness: 0.65, metalness: 0.02 });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.55, 0.62), bodyMat);
+    body.position.y = 0.58;
+    g.add(body);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.43, 0.45), headMat);
+    head.position.set(0, 0.72, 0.72);
+    g.add(head);
+    const earMat = new THREE.MeshStandardMaterial({ color: 0x3f2b17, roughness: 0.8 });
+    const earL = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.2, 8), earMat);
+    earL.position.set(-0.13, 0.95, 0.76);
+    earL.rotation.x = Math.PI;
+    g.add(earL);
+    const earR = earL.clone();
+    earR.position.x = 0.13;
+    g.add(earR);
+    const legGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.44, 8);
+    const legPos = [[-0.42, 0.24, 0.22], [0.42, 0.24, 0.22], [-0.42, 0.24, -0.2], [0.42, 0.24, -0.2]];
+    for (const p of legPos) {
+      const leg = new THREE.Mesh(legGeo, bodyMat);
+      leg.position.set(p[0], p[1], p[2]);
+      g.add(leg);
+    }
+    const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.42, 8), bodyMat);
+    tail.position.set(0, 0.72, -0.72);
+    tail.rotation.x = -0.8;
+    g.add(tail);
+    const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), new THREE.MeshStandardMaterial({ color: 0x1d130d, emissive: 0x3a2516, emissiveIntensity: 0.35 }));
+    muzzle.position.set(0, 0.65, 0.98);
+    g.add(muzzle);
+  } else if (isReditel) {
+    // Reditel is intentionally wider/fatter, not just uniformly larger.
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0xcaa06a, roughness: 0.55, metalness: 0.05, emissive: 0x604222, emissiveIntensity: 0.2 });
+    const torso = new THREE.Mesh(new THREE.SphereGeometry(0.88, 20, 14), bodyMat);
+    torso.scale.set(1.18, 0.92, 1.04);
+    torso.position.y = 0.98;
+    g.add(torso);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.34, 16, 12), new THREE.MeshStandardMaterial({ color: 0xf4e2c8, roughness: 0.6 }));
+    head.position.set(0, 1.68, 0.3);
+    g.add(head);
+    const face = new THREE.Mesh(
+      new THREE.SphereGeometry(0.18, 14, 10),
+      new THREE.MeshStandardMaterial({ color: 0xf4f9ff, emissive: 0x8adfff, emissiveIntensity: 0.25 })
+    );
+    face.position.set(0, 1.7, 0.62);
+    g.add(face);
+  } else {
+    const color = 0x86c2ff;
+    const body = new THREE.Mesh(
+      new THREE.CapsuleGeometry(PLAYER_RADIUS, 0.9, 4, 8),
+      new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.05, emissive: color, emissiveIntensity: 0.12 })
+    );
+    body.position.y = 0.95;
+    g.add(body);
+    const face = new THREE.Mesh(
+      new THREE.SphereGeometry(0.2, 14, 10),
+      new THREE.MeshStandardMaterial({ color: 0xf4f9ff, emissive: 0x8adfff, emissiveIntensity: 0.25 })
+    );
+    face.position.set(0, 1.12, 0.65);
+    g.add(face);
+  }
+
+  const nameSp = makeNameSprite(n.name || n.kind);
+  nameSp.position.y = isDog ? 1.65 : 2.45;
+  g.add(nameSp);
+
+  const talkSp = makeTalkSprite('');
+  talkSp.position.y = isDog ? 2.2 : 3.1;
+  talkSp.visible = false;
+  g.add(talkSp);
+
+  g.scale.setScalar(n.scale || 1);
+  g.userData.nameSprite = nameSp;
+  g.userData.talkSprite = talkSp;
+  return g;
+}
+
+function updateNPCsFromSnapshot(snap) {
+  const seen = new Set();
+  for (const n of (snap.npcs || [])) {
+    seen.add(n.id);
+    let obj = npcs.get(n.id);
+    if (!obj) {
+      const mesh = makeNPCMesh(n);
+      scene.add(mesh);
+      obj = { mesh, kind: n.kind, name: n.name, hp: n.hp || 0, alive: n.alive !== false, say: '', sayUntil: 0 };
+      npcs.set(n.id, obj);
+    }
+    obj.kind = n.kind;
+    obj.name = n.name;
+    obj.hp = n.hp || 0;
+    obj.alive = n.alive !== false;
+    obj.mesh.position.set(n.x, 0, n.z);
+    obj.mesh.rotation.y = n.facing || 0;
+    obj.mesh.scale.setScalar(n.scale || 1);
+    obj.mesh.visible = obj.alive;
+    setNameSprite(obj.mesh.userData.nameSprite, n.name || n.kind, '#e6f2ff');
+    obj.say = n.say || '';
+    obj.sayUntil = n.sayUntil || 0;
+    if (obj.say) setTalkSprite(obj.mesh.userData.talkSprite, obj.say);
+  }
+  for (const id of [...npcs.keys()]) {
+    if (!seen.has(id)) {
+      const n = npcs.get(id);
+      scene.remove(n.mesh);
+      n.mesh.userData.nameSprite.userData.tex.dispose();
+      n.mesh.userData.talkSprite.userData.tex.dispose();
+      n.mesh.traverse(o => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) {
+          if (Array.isArray(o.material)) o.material.forEach(m => m.dispose()); else o.material.dispose();
+        }
+      });
+      npcs.delete(id);
+    }
+  }
+}
+
+function updateNpcTalkVisibility() {
+  const nowMs = Date.now();
+  for (const n of npcs.values()) {
+    const sp = n.mesh.userData.talkSprite;
+    if (!n.alive || !n.say || nowMs > n.sayUntil) {
+      sp.visible = false;
+      continue;
+    }
+    sp.visible = true;
+  }
+}
+
 // ---------------- networking ----------------
 let ws = null;
 let myId = 0;
@@ -294,6 +468,7 @@ let myMana = 100; // optimistic local prediction; corrected by snapshots
 const players = new Map(); // id -> { mesh, name, hp, alive, snapshots: [{t,x,z,facing}], lastSeen }
 const projectiles = []; // {pid, owner, x, z, vx, vz, dist, max, mesh, hitDone}
 const pickups = new Map(); // id -> { kind, x, z, mesh }
+const npcs = new Map(); // id -> { mesh, kind, name, say, sayUntil }
 
 let myProjectileSeq = 1;
 let qReadyAt = 0;
@@ -498,6 +673,7 @@ function handleSnapshot(snap) {
   for (const id of [...pickups.keys()]) {
     if (!pkSeen.has(id)) removePickup(id);
   }
+  updateNPCsFromSnapshot(snap);
   refreshPlayerList();
 }
 
@@ -634,6 +810,9 @@ window.addEventListener('blur', () => {
 canvas.addEventListener('contextmenu', e => {
   e.preventDefault();
 });
+minimapCanvas.addEventListener('contextmenu', e => e.preventDefault());
+document.querySelector('.hp-center-panel')?.addEventListener('contextmenu', e => e.preventDefault());
+document.getElementById('ability-bar')?.addEventListener('contextmenu', e => e.preventDefault());
 
 const raycaster = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -682,15 +861,8 @@ function centerCameraOnMe() {
 }
 
 function getCameraAnchorBounds() {
-  // Keep camera angle fixed by constraining only the anchor.
-  const minX = Math.max(-serverHalfX, -serverHalfX - CAM_OFFSET.x, -serverHalfX);
-  const maxX = Math.min(serverHalfX, serverHalfX - CAM_OFFSET.x, serverHalfX);
-  const minZ = Math.max(-serverHalfZ, -serverHalfZ - CAM_OFFSET.z, -serverHalfZ - CAM_LOOK_OFFSET_Z);
-  const maxZ = Math.min(serverHalfZ, serverHalfZ - CAM_OFFSET.z, serverHalfZ - CAM_LOOK_OFFSET_Z);
-  if (minX > maxX || minZ > maxZ) {
-    return { minX: -serverHalfX, maxX: serverHalfX, minZ: -serverHalfZ, maxZ: serverHalfZ };
-  }
-  return { minX, maxX, minZ, maxZ };
+  // Full arena pan range for camera anchor.
+  return { minX: -serverHalfX, maxX: serverHalfX, minZ: -serverHalfZ, maxZ: serverHalfZ };
 }
 
 function clearAbilityModes() {
@@ -929,6 +1101,24 @@ function updateProjectiles(dt) {
           }
         }
       }
+      for (const [nid, n] of npcs) {
+        if (n.kind !== 'pes' || !n.alive) continue;
+        const nk = `n${nid}`;
+        if (pr.hitSet.has(nk)) continue;
+        const tx = n.mesh.position.x;
+        const tz = n.mesh.position.z;
+        const dx = tx - pr.x;
+        const dz = tz - pr.z;
+        const npcRadius = 0.6;
+        if (dx * dx + dz * dz <= (pr.radius + npcRadius) ** 2) {
+          pr.hitSet.add(nk);
+          send({ type: 'hit', data: { pid: pr.pid, target: Number(nid), dmg: pr.dmg } });
+          if (!pr.pierce) {
+            disposeProjectile(i);
+            break;
+          }
+        }
+      }
       if (!projectiles[i]) continue; // disposed above
     }
 
@@ -1069,6 +1259,26 @@ function drawMinimap() {
     ctx.arc(x, z, id === myId ? 3.5 : 2.8, 0, Math.PI * 2);
     ctx.fill();
   }
+
+  // npcs
+  for (const n of npcs.values()) {
+    if (!n.alive) continue;
+    ctx.fillStyle = n.kind === 'reditel' ? '#ffc38a' : (n.kind === 'pes' ? '#ff9a7d' : '#8af7ff');
+    ctx.beginPath();
+    ctx.arc(sx(n.mesh.position.x), sz(n.mesh.position.z), n.kind === 'reditel' ? 3.5 : 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // camera view border on minimap (approximate visible ground window)
+  const viewHalfX = 12;
+  const viewHalfZ = 8;
+  ctx.strokeStyle = 'rgba(214, 242, 255, 0.9)';
+  ctx.lineWidth = 1.25;
+  const vx0 = sx(cameraAnchor.x - viewHalfX);
+  const vx1 = sx(cameraAnchor.x + viewHalfX);
+  const vz0 = sz(cameraAnchor.y - viewHalfZ);
+  const vz1 = sz(cameraAnchor.y + viewHalfZ);
+  ctx.strokeRect(vx0, vz0, Math.max(1, vx1 - vx0), Math.max(1, vz1 - vz0));
   // border
   ctx.strokeStyle = '#56d9ff';
   ctx.lineWidth = 1;
@@ -1244,6 +1454,7 @@ function loop(t) {
   // projectiles
   updateProjectiles(dt);
   updatePickups();
+  updateNpcTalkVisibility();
 
   // skillshot / autoattack aim indicator
   if (alive && hasMouse && !teleportMode) {
