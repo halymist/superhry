@@ -25,7 +25,7 @@ const (
 	startHP      = 100
 	startMana    = 100
 	hitDamage    = 40
-	respawnMS    = 3000
+	respawnMS    = 10000
 	mapHalfX     = 36.0
 	mapHalfZ     = 22.0
 	maxNameLen   = 16
@@ -49,11 +49,13 @@ const (
 	dogTouchDmg   = 14
 	dogHitCDMS    = 900
 
-	reditelMissileSpeed = 7.0
-	reditelMissileRange = 12.0
-	reditelMissileRad   = 0.38
-	reditelMissileDmg   = 18
-	reditelShotCDMS     = 2600
+	reditelMissileSpeed = 12.0
+	reditelMissileRange = 10.0
+	reditelMissileRad   = 0.22
+	reditelMissileDmg   = 9
+	reditelShotCDMS     = 140
+	reditelBurstMS      = 3000
+	reditelPauseMS      = 900
 	reditelGoldDropMS   = 12000
 
 	playerRadius = 0.6
@@ -154,6 +156,8 @@ type npcRuntime struct {
 	nextSayMS  int64
 	nextHitMS  int64
 	nextDropMS int64
+	burstEndMS int64
+	pauseToMS  int64
 	aggroID    uint64
 }
 
@@ -453,19 +457,19 @@ func (h *ArenaHub) Run() {
 func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 	nowMS := now.UnixMilli()
 	namestekLines := []string{
-		"nevite kde je martin",
-		"je tady martin",
-		"martin?",
-		"poslete za mnou martina",
-		"hledam martina",
-		"nevidel nekdo martina?",
+		"Nevíte kde je Martin?",
+		"Je tady Martin",
+		"Martin?",
+		"Pošlete za mnou Martina",
+		"Hledám Martina",
+		"Neviděl někdo Martina?",
 	}
 	dogLines := []string{
-		"woof woof",
-		"grrr",
-		"haf haf",
-		"vrrr",
-		"au au",
+		"Woof woof",
+		"Grrr",
+		"Haf haf",
+		"Vrrr",
+		"Au au",
 	}
 
 	for _, n := range h.npcs {
@@ -500,7 +504,16 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 				h.spawnPickup("gold", n.state.X, n.state.Z, true, now)
 				n.nextDropMS = nowMS + reditelGoldDropMS + int64(rand.Intn(5000))
 			}
-			if nowMS >= n.nextHitMS {
+			if nowMS >= n.pauseToMS && n.burstEndMS == 0 {
+				n.burstEndMS = nowMS + reditelBurstMS
+				n.nextHitMS = nowMS
+			}
+			if n.burstEndMS > 0 && nowMS >= n.burstEndMS {
+				n.burstEndMS = 0
+				n.pauseToMS = nowMS + reditelPauseMS
+				n.nextHitMS = n.pauseToMS
+			}
+			if n.burstEndMS > 0 && nowMS >= n.nextHitMS {
 				var target *client
 				minD2 := reditelMissileRange * reditelMissileRange
 				for _, c := range h.clients {
@@ -531,9 +544,9 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 					if d > 0.001 {
 						n.state.Facing = math.Atan2(dx, dz)
 						h.spawnNPCProjectile(n.state.ID, n.state.X+dx/d*0.9, n.state.Z+dz/d*0.9, dx/d, dz/d)
-						n.nextHitMS = nowMS + reditelShotCDMS
 					}
 				}
+				n.nextHitMS = nowMS + reditelShotCDMS
 			}
 		}
 

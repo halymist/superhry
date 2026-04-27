@@ -119,6 +119,22 @@ html, body {
   color: var(--fg);
 }
 
+.hud .respawn-indicator {
+  position: absolute;
+  left: 50%;
+  top: 48%;
+  transform: translate(-50%, -50%);
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid #86bfff;
+  background: rgba(16, 28, 49, 0.86);
+  color: #eaf4ff;
+  font-size: 16px;
+  font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+
 .hud .panel-tl,
 .hud .panel-tr,
 .hud .panel-bl,
@@ -279,22 +295,9 @@ html, body {
   pointer-events: auto;
 }
 
-.hud .spellbook-panel .sb-title {
+.hud .spellbook-panel .sb-meta {
   font-size: 12px;
-  font-weight: 700;
-  color: #ffd98c;
-  margin-bottom: 1px;
-}
-
-.hud .spellbook-panel .sb-upgrade-note {
-  font-size: 11px;
-  color: #a7cfff;
-  margin-bottom: 3px;
-}
-
-.hud .spellbook-panel .sb-gold {
-  font-size: 12px;
-  color: #ffe89d;
+  color: #cce6ff;
   margin-bottom: 4px;
 }
 
@@ -397,22 +400,6 @@ html, body {
   transition: transform 80ms linear;
   pointer-events: none;
 }
-
-.hud a.back {
-  position: absolute;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  pointer-events: auto;
-  color: var(--muted);
-  text-decoration: none;
-  font-size: 12px;
-  background: rgba(13, 15, 20, 0.65);
-  border: 1px solid #222a38;
-  border-radius: 6px;
-  padding: 4px 10px;
-}
-.hud a.back:hover { color: var(--accent); border-color: var(--accent); }
 
 .name-modal {
   position: absolute;

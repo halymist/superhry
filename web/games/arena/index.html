@@ -18,7 +18,7 @@
     <canvas id="game-canvas"></canvas>
 
     <div class="hud">
-      <a class="back" href="/">← back</a>
+      <div id="respawn-indicator" class="respawn-indicator" hidden>Respawn in 10s</div>
 
       <div class="panel-tr minimap-panel">
         <canvas id="minimap" width="240" height="144"></canvas>
@@ -60,9 +60,7 @@
       </div>
 
       <div class="spellbook-panel" id="spellbook-panel">
-        <div class="sb-title">Spellbook</div>
-        <div class="sb-upgrade-note">Upgrade (3g)</div>
-        <div class="sb-gold">Gold: <span id="gold-text">0</span></div>
+        <div class="sb-meta">Upgrade (3g) | Gold: <span id="gold-text">0</span></div>
         <button class="sb-row" data-upgrade="hp"><span>HP</span><span id="u-hp">0/5</span></button>
         <button class="sb-row" data-upgrade="mana"><span>Mana</span><span id="u-mana">0/5</span></button>
         <button class="sb-row" data-upgrade="q"><span>Q Damage</span><span id="u-q">0/5</span></button>

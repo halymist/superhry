@@ -4,9 +4,7 @@
 import * as THREE from 'three';
 
 // ---------------- config ----------------
-const MOVE_SPEED   = 8.0;   // u/s
-const MOVE_ACCEL   = 32.0;  // u/s^2 for direction easing
-const MOVE_DRAG    = 20.0;  // velocity decay when stopping
+const MOVE_SPEED   = 7.2;   // u/s
 
 // Q skillshot (Mystic Shot)
 const Q_SPEED_START = 11.0;
@@ -22,7 +20,7 @@ const Q_COST       = 35;
 const AA_SPEED_START = 14.0;
 const AA_SPEED_MAX   = 24.0;
 const AA_ACCEL       = 28.0;
-const AA_RANGE     = 15.0;
+const AA_RANGE     = 17.0;
 const AA_RADIUS    = 0.28;
 const AA_DAMAGE    = 12;
 const AA_COOLDOWN_MS = 700;
@@ -41,6 +39,7 @@ const PLAYER_RADIUS = 0.6;
 
 // E blink
 const E_RANGE = 7.5;
+const E_WALL_OVERREACH = 1.4;
 const E_COOLDOWN_MS = 8000;
 const E_OUT_MS = 80;
 const E_IN_MS  = 140;
@@ -117,6 +116,7 @@ const slotRMask = document.getElementById('slot-r-mask');
 const minimapCanvas = document.getElementById('minimap');
 const minimapCtx = minimapCanvas.getContext('2d');
 const spellbookPanel = document.getElementById('spellbook-panel');
+const respawnIndicator = document.getElementById('respawn-indicator');
 const spellbookRows = Array.from(document.querySelectorAll('#spellbook-panel .sb-row'));
 const upHpEl = document.getElementById('u-hp');
 const upManaEl = document.getElementById('u-mana');
@@ -554,6 +554,63 @@ function segmentEndpoint(prevX, prevZ, dirX, dirZ, dist, rad) {
   return { x, z };
 }
 
+function clampToMap(x, z) {
+  return {
+    x: Math.max(-serverHalfX + PLAYER_RADIUS, Math.min(serverHalfX - PLAYER_RADIUS, x)),
+    z: Math.max(-serverHalfZ + PLAYER_RADIUS, Math.min(serverHalfZ - PLAYER_RADIUS, z)),
+  };
+}
+
+function isTeleportBlocked(x, z) {
+  if (pointInObstacle(x, z, PLAYER_RADIUS)) return true;
+
+  for (const [id, pl] of players) {
+    if (id === myId || !pl.alive) continue;
+    const dx = pl.mesh.position.x - x;
+    const dz = pl.mesh.position.z - z;
+    if (dx * dx + dz * dz < (PLAYER_RADIUS * 2) ** 2 * 0.9) return true;
+  }
+
+  for (const n of npcs.values()) {
+    if (!n.alive) continue;
+    const nRad = n.kind === 'reditel' ? 1.0 : 0.72;
+    const dx = n.mesh.position.x - x;
+    const dz = n.mesh.position.z - z;
+    if (dx * dx + dz * dz < (PLAYER_RADIUS + nRad) ** 2 * 0.9) return true;
+  }
+
+  return false;
+}
+
+function findTeleportSpot(targetX, targetZ, ux, uz, maxBack) {
+  const primary = clampToMap(targetX, targetZ);
+  if (!isTeleportBlocked(primary.x, primary.z)) return primary;
+
+  const px = -uz;
+  const pz = ux;
+  // Prefer close side-steps near intended landing, avoid big fallback to origin.
+  for (const side of [0.35, 0.7, 1.05, 1.4]) {
+    const a = clampToMap(targetX + px * side, targetZ + pz * side);
+    if (!isTeleportBlocked(a.x, a.z)) return a;
+    const b = clampToMap(targetX - px * side, targetZ - pz * side);
+    if (!isTeleportBlocked(b.x, b.z)) return b;
+  }
+
+  const backLimit = Math.min(maxBack, 2.2);
+  for (let back = 0.28; back <= backLimit + 0.001; back += 0.28) {
+    const base = clampToMap(targetX - ux * back, targetZ - uz * back);
+    if (!isTeleportBlocked(base.x, base.z)) return base;
+
+    for (const side of [0.35, 0.7, 1.05]) {
+      const a = clampToMap(base.x + px * side, base.z + pz * side);
+      if (!isTeleportBlocked(a.x, a.z)) return a;
+      const b = clampToMap(base.x - px * side, base.z - pz * side);
+      if (!isTeleportBlocked(b.x, b.z)) return b;
+    }
+  }
+  return null;
+}
+
 const aimLineMat = new THREE.LineBasicMaterial({ color: 0x80e7ff, transparent: true, opacity: 0.9 });
 const aimLineGeom = new THREE.BufferGeometry().setFromPoints([
   new THREE.Vector3(0, 0.08, 0),
@@ -672,6 +729,7 @@ function handleSnapshot(snap) {
     pl.upW = p.upW || 0;
     pl.upE = p.upE || 0;
     pl.upR = p.upR || 0;
+    pl.respawnAt = p.respawnAt || 0;
     pl.alive = p.alive;
     if (pl.mesh.userData.hpSprite) {
       setHpSprite(pl.mesh.userData.hpSprite, p.hp, pl.maxHp);
@@ -1013,28 +1071,16 @@ function tryTeleport() {
 
   const ux = dx / dist, uz = dz / dist;
   const stats = myAbilityStats();
-  const want = Math.min(stats.eRange, dist);
-  // E phases through walls/projectiles: just step to map-bounded destination.
-  let nx = myPos.x + ux * want;
-  let nz = myPos.z + uz * want;
-  nx = Math.max(-serverHalfX + PLAYER_RADIUS, Math.min(serverHalfX - PLAYER_RADIUS, nx));
-  nz = Math.max(-serverHalfZ + PLAYER_RADIUS, Math.min(serverHalfZ - PLAYER_RADIUS, nz));
+  const clickLimit = stats.eRange + E_WALL_OVERREACH;
+  if (dist > clickLimit + 0.001) return;
+  const want = Math.min(clickLimit, dist);
+  const targetX = myPos.x + ux * want;
+  const targetZ = myPos.z + uz * want;
+  const spot = findTeleportSpot(targetX, targetZ, ux, uz, want);
+  if (!spot) return;
 
-  // If destination lands inside an obstacle, nudge out along inverse dir.
-  if (pointInObstacle(nx, nz, PLAYER_RADIUS)) {
-    let pushed = false;
-    for (let s = 0.4; s <= want; s += 0.4) {
-      const tx = nx - ux * s;
-      const tz = nz - uz * s;
-      if (!pointInObstacle(tx, tz, PLAYER_RADIUS)) {
-        nx = tx; nz = tz; pushed = true; break;
-      }
-    }
-    if (!pushed) return;
-  }
-
-  myPos.x = nx;
-  myPos.z = nz;
+  myPos.x = spot.x;
+  myPos.z = spot.z;
   hasMoveTarget = false;
 
   eReadyAt = now + E_COOLDOWN_MS;
@@ -1106,7 +1152,7 @@ function projectileSpec(kind, boost = null) {
   const b = boost || { qDmg: Q_DAMAGE, rRadius: R_RADIUS, rDmg: R_DAMAGE };
   switch (kind) {
     case 'reditel':
-      return { radius: 0.38, startSpeed: 7.0, maxSpeed: 7.0, accel: 0, range: 12.0, dmg: 18, pierce: true };
+      return { radius: 0.22, startSpeed: 12.0, maxSpeed: 12.0, accel: 0, range: 10.0, dmg: 9, pierce: true };
     case 'r':
       return { radius: b.rRadius, startSpeed: R_SPEED_START, maxSpeed: R_SPEED_MAX, accel: R_ACCEL, range: R_RANGE, dmg: b.rDmg, pierce: true };
     case 'aa':
@@ -1424,12 +1470,22 @@ function loop(t) {
   const me = players.get(myId);
   const alive = me ? me.alive : true;
 
-  // local movement: right-click to move with eased direction changes
+  if (respawnIndicator) {
+    if (me && !alive && me.respawnAt) {
+      const remainMS = Math.max(0, me.respawnAt - Date.now());
+      const remain = Math.ceil(remainMS / 1000);
+      respawnIndicator.hidden = false;
+      respawnIndicator.textContent = `Respawn in ${remain}s`;
+    } else {
+      respawnIndicator.hidden = true;
+    }
+  }
+
+  // local movement: right-click to move with immediate direction changes
   if (alive) {
     const sprintActive = performance.now() < wActiveUntil;
     const moveSpeedNow = MOVE_SPEED * (sprintActive ? W_SPEED_MULT : 1);
-    let desiredVx = 0;
-    let desiredVz = 0;
+    myVel.set(0, 0);
     if (hasMoveTarget) {
       const dx = moveTarget.x - myPos.x;
       const dz = moveTarget.y - myPos.z;
@@ -1437,20 +1493,9 @@ function loop(t) {
       if (dist <= 0.06) {
         hasMoveTarget = false;
       } else {
-        desiredVx = (dx / dist) * moveSpeedNow;
-        desiredVz = (dz / dist) * moveSpeedNow;
+        myVel.x = (dx / dist) * moveSpeedNow;
+        myVel.y = (dz / dist) * moveSpeedNow;
       }
-    }
-
-    const steerAlpha = Math.min(1, MOVE_ACCEL * dt / MOVE_SPEED);
-    myVel.x += (desiredVx - myVel.x) * steerAlpha;
-    myVel.y += (desiredVz - myVel.y) * steerAlpha;
-
-    if (!hasMoveTarget) {
-      const drag = Math.max(0, 1 - MOVE_DRAG * dt / MOVE_SPEED);
-      myVel.x *= drag;
-      myVel.y *= drag;
-      if (Math.hypot(myVel.x, myVel.y) < 0.03) myVel.set(0, 0);
     }
 
     const nx = myPos.x + myVel.x * dt;
