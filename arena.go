@@ -50,6 +50,9 @@ const (
 	dogHitCDMS        = 900
 	dogChaseSpeed     = 4.0
 	dogWanderSpeed    = 2.1
+	reditelHP         = 900
+	reditelRegenPS    = 14.0
+	namestekTalkCDMS  = 10000
 	sofieFollowRange  = 10.0
 	sofieFollowDrop   = 16.0
 	sofieFollowSpeed  = 1.85
@@ -179,6 +182,7 @@ type npcState struct {
 	Facing   float64 `json:"facing"`
 	Scale    float64 `json:"scale"`
 	HP       int     `json:"hp,omitempty"`
+	MaxHP    int     `json:"maxHp,omitempty"`
 	Alive    bool    `json:"alive"`
 	RespawnT int64   `json:"respawnAt,omitempty"`
 	Say      string  `json:"say,omitempty"`
@@ -189,6 +193,7 @@ type npcRuntime struct {
 	state      npcState
 	vx         float64
 	vz         float64
+	hpAcc      float64
 	nextDirMS  int64
 	nextSayMS  int64
 	nextHitMS  int64
@@ -400,13 +405,13 @@ func (h *ArenaHub) initNPCs() {
 		nextSayMS: now + 3000,
 	}
 	h.npcs[1002] = &npcRuntime{
-		state:      npcState{ID: 1002, Kind: "reditel", Name: "Ředitel", X: 10, Z: -8, Facing: 0, Scale: 1.0, Alive: true},
+		state:      npcState{ID: 1002, Kind: "reditel", Name: "Ředitel", X: 10, Z: -8, Facing: 0, Scale: 1.0, HP: reditelHP, MaxHP: reditelHP, Alive: true},
 		nextDirMS:  now + 900,
 		nextSayMS:  now + 1000000,
 		nextDropMS: now + reditelGoldDropMS,
 	}
 	h.npcs[1003] = &npcRuntime{
-		state:     npcState{ID: 1003, Kind: "pes", Name: "Pes", X: 2, Z: 2, Facing: 0, Scale: 1.0, HP: dogHP, Alive: true},
+		state:     npcState{ID: 1003, Kind: "pes", Name: "Pes", X: 2, Z: 2, Facing: 0, Scale: 1.0, HP: dogHP, MaxHP: dogHP, Alive: true},
 		nextDirMS: now + 1000,
 		nextSayMS: now + 2600,
 	}
@@ -527,11 +532,36 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 				n.nextDirMS = nowMS + 600
 				n.nextSayMS = nowMS + 2400
 				n.nextHitMS = 0
+				n.hpAcc = 0
 				if n.state.Kind == "pes" {
 					n.state.HP = dogHP
+					n.state.MaxHP = dogHP
+				}
+				if n.state.Kind == "reditel" {
+					n.state.HP = reditelHP
+					n.state.MaxHP = reditelHP
 				}
 			}
 			continue
+		}
+
+		if n.state.Kind == "reditel" {
+			if n.state.MaxHP <= 0 {
+				n.state.MaxHP = reditelHP
+			}
+			if n.state.HP < n.state.MaxHP {
+				n.hpAcc += reditelRegenPS * dt
+				if n.hpAcc >= 1 {
+					add := int(n.hpAcc)
+					n.hpAcc -= float64(add)
+					n.state.HP += add
+					if n.state.HP > n.state.MaxHP {
+						n.state.HP = n.state.MaxHP
+					}
+				}
+			} else {
+				n.hpAcc = 0
+			}
 		}
 
 		speed := 1.3
@@ -814,6 +844,10 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 		}
 
 		if n.state.Kind == "namestek" && nowMS >= n.nextSayMS {
+			if n.state.Say != "" && n.state.SayUntil > nowMS {
+				n.nextSayMS = n.state.SayUntil + namestekTalkCDMS
+				continue
+			}
 			near := false
 			for _, c := range h.clients {
 				c.mu.Lock()
@@ -834,9 +868,9 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 			if near {
 				n.state.Say = namestekLines[rand.Intn(len(namestekLines))]
 				n.state.SayUntil = nowMS + npcSayMS
-				n.nextSayMS = nowMS + 6000 + int64(rand.Intn(5000))
+				n.nextSayMS = nowMS + namestekTalkCDMS + int64(rand.Intn(3000))
 			} else {
-				n.nextSayMS = nowMS + 2500
+				n.nextSayMS = nowMS + 4500
 			}
 		}
 
@@ -1179,15 +1213,25 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 	target, ok := h.clients[ev.target]
 	if !ok {
 		n, isNPC := h.npcs[ev.target]
-		if !isNPC || n.state.Kind != "pes" || !n.state.Alive {
+		if !isNPC || !n.state.Alive || (n.state.Kind != "pes" && n.state.Kind != "reditel") {
 			return
 		}
 		dmg := ev.dmg
 		if dmg <= 0 {
 			dmg = hitDamage
 		}
-		if dmg > dogHP {
-			dmg = dogHP
+		maxNPC := n.state.MaxHP
+		if maxNPC <= 0 {
+			if n.state.Kind == "reditel" {
+				maxNPC = reditelHP
+				n.state.MaxHP = reditelHP
+			} else {
+				maxNPC = dogHP
+				n.state.MaxHP = dogHP
+			}
+		}
+		if dmg > maxNPC {
+			dmg = maxNPC
 		}
 		n.state.HP -= dmg
 		killed := n.state.HP <= 0
@@ -1197,7 +1241,10 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 			n.state.RespawnT = time.Now().UnixMilli() + npcRespawnMS
 			n.state.Say = ""
 			n.state.SayUntil = 0
-			h.spawnPickup("gold", n.state.X, n.state.Z, true, time.Now())
+			n.hpAcc = 0
+			if n.state.Kind == "pes" {
+				h.spawnPickup("gold", n.state.X, n.state.Z, true, time.Now())
+			}
 		}
 		h.broadcastJSON(sMsg{Type: "hit", Data: sHit{
 			Shooter: ev.shooter, Target: ev.target, PID: ev.pid,

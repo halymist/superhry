@@ -61,6 +61,7 @@ const CAM_PAN_SPEED = 24.0;
 // pickups
 const PICKUP_RADIUS = 0.6;
 const DOG_MAX_HP = 90;
+const REDITEL_MAX_HP = 900;
 
 const INTERP_DELAY_MS = 120; // remote interpolation
 const SEND_HZ = 20;
@@ -460,10 +461,15 @@ function makeNPCMesh(n) {
     hpSp.position.y = 1.95;
     g.add(hpSp);
     g.userData.hpSprite = hpSp;
+  } else if (isReditel) {
+    const hpSp = makeHpSprite();
+    hpSp.position.y = 2.35;
+    g.add(hpSp);
+    g.userData.hpSprite = hpSp;
   }
 
   const talkSp = makeTalkSprite('');
-  talkSp.position.y = isDog ? 2.2 : 3.1;
+  talkSp.position.y = isDog ? 2.45 : 3.45;
   talkSp.visible = false;
   g.add(talkSp);
 
@@ -481,21 +487,24 @@ function updateNPCsFromSnapshot(snap) {
     if (!obj) {
       const mesh = makeNPCMesh(n);
       scene.add(mesh);
-      obj = { id: n.id, mesh, kind: n.kind, name: n.name, hp: n.hp || 0, alive: n.alive !== false, say: '', sayUntil: 0 };
+      obj = { id: n.id, mesh, kind: n.kind, name: n.name, hp: n.hp || 0, maxHp: n.maxHp || 0, alive: n.alive !== false, say: '', sayUntil: 0 };
       npcs.set(n.id, obj);
     }
     obj.id = n.id;
     obj.kind = n.kind;
     obj.name = n.name;
     obj.hp = n.hp || 0;
+    obj.maxHp = n.maxHp || 0;
     obj.alive = n.alive !== false;
     obj.mesh.position.set(n.x, 0, n.z);
     obj.mesh.rotation.y = n.facing || 0;
     obj.mesh.scale.setScalar(n.scale || 1);
     obj.mesh.visible = obj.alive;
     setNameSprite(obj.mesh.userData.nameSprite, n.name || n.kind, '#e6f2ff');
-    if (obj.kind === 'pes' && obj.mesh.userData.hpSprite) {
-      setHpSprite(obj.mesh.userData.hpSprite, obj.hp, DOG_MAX_HP);
+    if ((obj.kind === 'pes' || obj.kind === 'reditel') && obj.mesh.userData.hpSprite) {
+      const fallbackMax = obj.kind === 'reditel' ? REDITEL_MAX_HP : DOG_MAX_HP;
+      const maxHp = obj.maxHp > 0 ? obj.maxHp : fallbackMax;
+      setHpSprite(obj.mesh.userData.hpSprite, obj.hp, maxHp);
       obj.mesh.userData.hpSprite.visible = obj.alive;
     }
     obj.say = n.say || '';
