@@ -871,6 +871,24 @@ func (h *ArenaHub) spawnNPCProjectile(owner uint64, x, z, dx, dz float64) {
 }
 
 func (h *ArenaHub) updateNPCProjectiles(dt float64) {
+	type projTarget struct {
+		id uint64
+		x  float64
+		z  float64
+	}
+	targets := make([]projTarget, 0, len(h.clients))
+	for _, c := range h.clients {
+		c.mu.Lock()
+		alive := c.state.Alive
+		px := c.state.X
+		pz := c.state.Z
+		pid := c.id
+		c.mu.Unlock()
+		if alive {
+			targets = append(targets, projTarget{id: pid, x: px, z: pz})
+		}
+	}
+
 	for id, pr := range h.npcProjs {
 		stepX := pr.DX * pr.Speed * dt
 		stepZ := pr.DZ * pr.Speed * dt
@@ -884,20 +902,19 @@ func (h *ArenaHub) updateNPCProjectiles(dt float64) {
 		}
 
 		hit := false
-		for _, c := range h.clients {
-			c.mu.Lock()
-			alive := c.state.Alive
-			px := c.state.X
-			pz := c.state.Z
-			pid := c.id
-			c.mu.Unlock()
-			if !alive {
+		hitR := pr.Rad + playerRadius
+		hitR2 := hitR * hitR
+		for _, t := range targets {
+			dx := t.x - pr.X
+			if dx > hitR || dx < -hitR {
 				continue
 			}
-			dx := px - pr.X
-			dz := pz - pr.Z
-			if dx*dx+dz*dz <= (pr.Rad+playerRadius)*(pr.Rad+playerRadius) {
-				h.applyHit(hitEvent{shooter: pr.Owner, target: pid, pid: pr.ID, dmg: pr.Dmg})
+			dz := t.z - pr.Z
+			if dz > hitR || dz < -hitR {
+				continue
+			}
+			if dx*dx+dz*dz <= hitR2 {
+				h.applyHit(hitEvent{shooter: pr.Owner, target: t.id, pid: pr.ID, dmg: pr.Dmg})
 				hit = true
 				break
 			}

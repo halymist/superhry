@@ -292,21 +292,24 @@ function makeTalkSprite(text) {
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
   const sp = new THREE.Sprite(mat);
   sp.scale.set(3.8, 0.72, 1);
+  sp.userData.canvas = c;
   sp.userData.ctx = ctx;
   sp.userData.tex = tex;
   return sp;
 }
 function drawTalkSprite(ctx, text) {
-  ctx.clearRect(0, 0, 420, 76);
+  const w = ctx.canvas.width;
+  const h = ctx.canvas.height;
+  ctx.clearRect(0, 0, w, h);
   if (!text) return;
   ctx.fillStyle = 'rgba(0,0,0,0.65)';
-  roundRect(ctx, 6, 8, 408, 56, 10);
+  roundRect(ctx, 6, 8, w - 12, h - 20, 10);
   ctx.fill();
   ctx.font = 'bold 28px ui-monospace, Consolas, monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#e8f7ff';
-  ctx.fillText(text, 210, 36);
+  ctx.fillText(text, w / 2, h / 2 - 2);
 }
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -318,7 +321,19 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 function setTalkSprite(sp, text) {
-  drawTalkSprite(sp.userData.ctx, text || '');
+  const t = text || '';
+  const c = sp.userData.canvas;
+  const ctx = sp.userData.ctx;
+  ctx.font = 'bold 28px ui-monospace, Consolas, monospace';
+  const measured = t ? Math.ceil(ctx.measureText(t).width) : 0;
+  const w = Math.max(140, Math.min(420, measured + 44));
+  const h = 76;
+  if (c.width !== w || c.height !== h) {
+    c.width = w;
+    c.height = h;
+    sp.scale.set((w / 420) * 3.8, 0.72, 1);
+  }
+  drawTalkSprite(ctx, t);
   sp.userData.tex.needsUpdate = true;
 }
 function makeHpSprite() {
@@ -530,6 +545,9 @@ const players = new Map(); // id -> { mesh, name, hp, alive, snapshots: [{t,x,z,
 const projectiles = []; // {pid, owner, x, z, vx, vz, dist, max, mesh, hitDone}
 const pickups = new Map(); // id -> { kind, x, z, mesh }
 const npcs = new Map(); // id -> { mesh, kind, name, say, sayUntil }
+const projectileTargets = [];
+const projectileDogTargets = [];
+const projectileBlockers = [];
 
 let myProjectileSeq = 1;
 let qReadyAt = 0;
@@ -1167,14 +1185,16 @@ function spawnProjectile(p) {
   else                    color = p.owner === myId ? 0xffe48a : 0xff9b66;
 
   const mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(spec.radius, 22, 16),
+    new THREE.SphereGeometry(spec.radius, 12, 9),
     new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: kind === 'r' ? 1.1 : 0.85 })
   );
   mesh.position.set(p.ox, 1.0, p.oz);
   scene.add(mesh);
 
-  const light = new THREE.PointLight(color, kind === 'r' ? 1.6 : (kind === 'q' ? 1.0 : 0.5), kind === 'r' ? 8 : (kind === 'q' ? 5 : (kind === 'reditel' ? 5 : 3)));
-  mesh.add(light);
+  if (kind === 'r') {
+    const light = new THREE.PointLight(color, 1.3, 7);
+    mesh.add(light);
+  }
 
   projectiles.push({
     pid: p.pid,
@@ -1191,6 +1211,26 @@ function spawnProjectile(p) {
     hitDone: false,
     hitSet: new Set(),
   });
+}
+
+function refreshProjectileCollisionTargets() {
+  projectileTargets.length = 0;
+  projectileDogTargets.length = 0;
+  projectileBlockers.length = 0;
+
+  for (const [id, pl] of players) {
+    if (!pl.alive) continue;
+    projectileTargets.push({ id, x: pl.mesh.position.x, z: pl.mesh.position.z });
+  }
+
+  for (const [nid, n] of npcs) {
+    if (!n.alive) continue;
+    if (n.kind === 'pes') {
+      projectileDogTargets.push({ id: Number(nid), x: n.mesh.position.x, z: n.mesh.position.z, rad: 0.6 });
+    } else {
+      projectileBlockers.push({ id: Number(nid), x: n.mesh.position.x, z: n.mesh.position.z, rad: n.kind === 'reditel' ? 1.05 : 0.72 });
+    }
+  }
 }
 
 function updateProjectiles(dt) {
@@ -1213,12 +1253,11 @@ function updateProjectiles(dt) {
 
     // neutral NPCs can body-block projectiles
     let blockedByNpc = false;
-    for (const n of npcs.values()) {
-      if (!n.alive || n.kind === 'pes') continue;
-      if (Number(n.id) === pr.owner) continue;
-      const dxn = n.mesh.position.x - pr.x;
-      const dzn = n.mesh.position.z - pr.z;
-      const nRad = n.kind === 'reditel' ? 1.05 : 0.72;
+    for (const n of projectileBlockers) {
+      if (n.id === pr.owner) continue;
+      const dxn = n.x - pr.x;
+      const dzn = n.z - pr.z;
+      const nRad = n.rad;
       if (dxn * dxn + dzn * dzn <= (pr.radius + nRad) ** 2) {
         blockedByNpc = true;
         break;
@@ -1231,34 +1270,33 @@ function updateProjectiles(dt) {
 
     // shooter checks hits (client-authoritative)
     if (pr.owner === myId) {
-      for (const [pid, pl] of players) {
-        if (pid === myId || !pl.alive) continue;
-        if (pr.hitSet.has(pid)) continue;
-        const tx = pl.mesh.position.x;
-        const tz = pl.mesh.position.z;
+      for (const target of projectileTargets) {
+        if (target.id === myId) continue;
+        if (pr.hitSet.has(target.id)) continue;
+        const tx = target.x;
+        const tz = target.z;
         const dx = tx - pr.x, dz = tz - pr.z;
         const extra = pr.kind === 'r' ? 0.35 : 0.0;
         if (dx * dx + dz * dz <= (pr.radius + PLAYER_RADIUS + extra) ** 2) {
-          pr.hitSet.add(pid);
-          send({ type: 'hit', data: { pid: pr.pid, target: pid, dmg: pr.dmg } });
+          pr.hitSet.add(target.id);
+          send({ type: 'hit', data: { pid: pr.pid, target: target.id, dmg: pr.dmg } });
           if (!pr.pierce) {
             disposeProjectile(i);
             break;
           }
         }
       }
-      for (const [nid, n] of npcs) {
-        if (n.kind !== 'pes' || !n.alive) continue;
-        const nk = `n${nid}`;
+      for (const n of projectileDogTargets) {
+        const nk = `n${n.id}`;
         if (pr.hitSet.has(nk)) continue;
-        const tx = n.mesh.position.x;
-        const tz = n.mesh.position.z;
+        const tx = n.x;
+        const tz = n.z;
         const dx = tx - pr.x;
         const dz = tz - pr.z;
-        const npcRadius = 0.6;
+        const npcRadius = n.rad;
         if (dx * dx + dz * dz <= (pr.radius + npcRadius) ** 2) {
           pr.hitSet.add(nk);
-          send({ type: 'hit', data: { pid: pr.pid, target: Number(nid), dmg: pr.dmg } });
+          send({ type: 'hit', data: { pid: pr.pid, target: n.id, dmg: pr.dmg } });
           if (!pr.pierce) {
             disposeProjectile(i);
             break;
@@ -1557,6 +1595,7 @@ function loop(t) {
   }
 
   // projectiles
+  refreshProjectileCollisionTargets();
   updateProjectiles(dt);
   updatePickups();
   updateNpcTalkVisibility();
