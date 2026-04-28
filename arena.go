@@ -50,8 +50,8 @@ const (
 	dogHitCDMS        = 900
 	dogChaseSpeed     = 4.0
 	dogWanderSpeed    = 2.1
-	reditelHP         = 900
-	reditelRegenPS    = 14.0
+	reditelHP         = 450
+	reditelRegenPS    = 4.0
 	namestekTalkCDMS  = 10000
 	sofieFollowRange  = 10.0
 	sofieFollowDrop   = 16.0

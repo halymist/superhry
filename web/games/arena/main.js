@@ -61,7 +61,7 @@ const CAM_PAN_SPEED = 24.0;
 // pickups
 const PICKUP_RADIUS = 0.6;
 const DOG_MAX_HP = 90;
-const REDITEL_MAX_HP = 900;
+const REDITEL_MAX_HP = 450;
 
 const INTERP_DELAY_MS = 120; // remote interpolation
 const SEND_HZ = 20;
@@ -453,7 +453,7 @@ function makeNPCMesh(n) {
   }
 
   const nameSp = makeNameSprite(n.name || n.kind);
-  nameSp.position.y = isDog ? 1.65 : 2.45;
+  nameSp.position.y = isDog ? 1.65 : (isReditel ? 2.05 : 2.45);
   g.add(nameSp);
 
   if (isDog) {
@@ -469,7 +469,7 @@ function makeNPCMesh(n) {
   }
 
   const talkSp = makeTalkSprite('');
-  talkSp.position.y = isDog ? 2.45 : 3.45;
+  talkSp.position.y = isDog ? 2.7 : 3.75;
   talkSp.visible = false;
   g.add(talkSp);
 
@@ -915,12 +915,7 @@ slotE.addEventListener('click', () => {
   tryTeleport();
 });
 slotR.addEventListener('click', () => {
-  if (rMode) {
-    rMode = false;
-    slotR.classList.remove('targeting');
-    return;
-  }
-  tryEnterRMode();
+  tryFireR();
 });
 
 for (const row of spellbookRows) {
@@ -947,9 +942,7 @@ canvas.addEventListener('mousemove', e => {
 });
 canvas.addEventListener('mousedown', e => {
   if (e.button === 0) {
-    if (rMode) {
-      tryFireR();
-    } else if (qMode) {
+    if (qMode) {
       tryFireQ();
     } else {
       tryAutoAttack();
@@ -1043,13 +1036,7 @@ function tryEnterQMode() {
 }
 
 function tryEnterRMode() {
-  const me = players.get(myId);
-  if (!me || !me.alive) return;
-  if (performance.now() < rReadyAt) return;
-  if (myMana < R_COST) return;
-  rMode = true;
-  slotR.classList.add('targeting');
-  if (qMode)        { qMode = false;        slotQ.classList.remove('targeting'); }
+  tryFireR();
 }
 
 function tryCastW() {
@@ -1234,10 +1221,11 @@ function refreshProjectileCollisionTargets() {
 
   for (const [nid, n] of npcs) {
     if (!n.alive) continue;
-    if (n.kind === 'pes') {
-      projectileDogTargets.push({ id: Number(nid), x: n.mesh.position.x, z: n.mesh.position.z, rad: 0.6 });
+    if (n.kind === 'pes' || n.kind === 'reditel') {
+      const rad = n.kind === 'reditel' ? 1.05 : 0.6;
+      projectileDogTargets.push({ id: Number(nid), x: n.mesh.position.x, z: n.mesh.position.z, rad });
     } else {
-      projectileBlockers.push({ id: Number(nid), x: n.mesh.position.x, z: n.mesh.position.z, rad: n.kind === 'reditel' ? 1.05 : 0.72 });
+      projectileBlockers.push({ id: Number(nid), x: n.mesh.position.x, z: n.mesh.position.z, rad: 0.72 });
     }
   }
 }
