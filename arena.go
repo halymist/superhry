@@ -490,11 +490,11 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 		"Au au",
 	}
 	sofieLines := []string{
-		"Privet!",
-		"Kak dela?",
-		"Spasibo!",
-		"Davai, pognali!",
-		"Nu ladno...",
+		"Привет!",
+		"Как дела?",
+		"Спасибо!",
+		"Давай, погнали!",
+		"Ну ладно...",
 	}
 
 	for _, n := range h.npcs {
@@ -707,6 +707,11 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 						d2 := dx*dx + dz*dz
 						if d2 <= sofieFollowDrop*sofieFollowDrop {
 							following = true
+							if nowMS >= n.nextSayMS {
+								n.state.Say = sofieLines[rand.Intn(len(sofieLines))]
+								n.state.SayUntil = nowMS + npcSayMS
+								n.nextSayMS = nowMS + 2200 + int64(rand.Intn(2200))
+							}
 							d := math.Sqrt(d2)
 							if d > 1.35 {
 								n.vx = dx / d * sofieFollowSpeed
@@ -724,6 +729,8 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 			if !following {
 				n.aggroID = 0
 				n.followToMS = 0
+				n.state.Say = ""
+				n.state.SayUntil = 0
 				if nowMS >= n.pauseToMS {
 					bestID := uint64(0)
 					bestD2 := sofieFollowRange * sofieFollowRange
@@ -813,12 +820,6 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 			} else {
 				n.nextSayMS = nowMS + 2500
 			}
-		}
-
-		if n.state.Kind == "sofie" && nowMS >= n.nextSayMS {
-			n.state.Say = sofieLines[rand.Intn(len(sofieLines))]
-			n.state.SayUntil = nowMS + npcSayMS
-			n.nextSayMS = nowMS + 7000 + int64(rand.Intn(6000))
 		}
 
 	}
