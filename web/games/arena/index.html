@@ -38,36 +38,67 @@
       </div>
 
       <div class="ability-bar" id="ability-bar">
-        <div class="ability-slot active" id="slot-q">
+        <div class="ability-slot" id="slot-q" data-slot="q">
           <div class="key">Q</div>
-          <div class="label">Mystic Shot</div>
+          <div class="label">Prázdné</div>
           <div class="cd-mask" id="slot-q-mask"></div>
         </div>
-        <div class="ability-slot active" id="slot-w">
+        <div class="ability-slot" id="slot-w" data-slot="w">
           <div class="key">W</div>
-          <div class="label">Sprint</div>
+          <div class="label">Prázdné</div>
           <div class="cd-mask" id="slot-w-mask"></div>
         </div>
-        <div class="ability-slot active" id="slot-e">
+        <div class="ability-slot" id="slot-e" data-slot="e">
           <div class="key">E</div>
-          <div class="label">Teleport</div>
+          <div class="label">Prázdné</div>
           <div class="cd-mask" id="slot-e-mask"></div>
         </div>
-        <div class="ability-slot active" id="slot-r">
+        <div class="ability-slot" id="slot-r" data-slot="r">
           <div class="key">R</div>
-          <div class="label">Trueshot</div>
+          <div class="label">Prázdné</div>
           <div class="cd-mask" id="slot-r-mask"></div>
         </div>
       </div>
 
-      <div class="spellbook-panel" id="spellbook-panel">
-        <div class="sb-meta">Upgrade (3 Prémie) | Prémie: <span id="gold-text">0</span></div>
-        <button class="sb-row" data-upgrade="hp"><span>HP</span><span id="u-hp">0/5</span></button>
-        <button class="sb-row" data-upgrade="mana"><span>Mana</span><span id="u-mana">0/5</span></button>
-        <button class="sb-row" data-upgrade="q"><span>Q Damage</span><span id="u-q">0/5</span></button>
-        <button class="sb-row" data-upgrade="w"><span>W Duration</span><span id="u-w">0/5</span></button>
-        <button class="sb-row" data-upgrade="e"><span>E Range</span><span id="u-e">0/5</span></button>
-        <button class="sb-row" data-upgrade="r"><span>R Power</span><span id="u-r">0/5</span></button>
+      <div class="gold-floating">Prémie: <span id="gold-text">0</span></div>
+      <button id="spellbook-toggle" class="spellbook-toggle">Kniha kouzel</button>
+
+      <div class="spellbook-panel" id="spellbook-panel" hidden>
+        <div class="sb-head">
+          <button id="spellbook-close" class="sb-close" type="button">Zavřít</button>
+        </div>
+        <div class="sb-meta">Vylepšení (3 Prémie)</div>
+        <div class="sb-inline-upgrades">
+          <button class="sb-inline-upgrade" data-upgrade="hp" type="button">HP <span id="u-hp">0/5</span></button>
+          <button class="sb-inline-upgrade" data-upgrade="mana" type="button">Mana <span id="u-mana">0/5</span></button>
+        </div>
+
+        <div class="sb-spells">
+          <div class="sb-spell" data-spell="q" draggable="true">
+            <div class="sb-spell-top"><span class="sb-name">Salva</span></div>
+            <div class="sb-lvl" id="u-q">0/5</div>
+          </div>
+          <div class="sb-spell" data-spell="w" draggable="true">
+            <div class="sb-spell-top"><span class="sb-name">Sprint</span></div>
+            <div class="sb-lvl" id="u-w">0/5</div>
+          </div>
+          <div class="sb-spell" data-spell="e" draggable="true">
+            <div class="sb-spell-top"><span class="sb-name">Teleport</span></div>
+            <div class="sb-lvl" id="u-e">0/5</div>
+          </div>
+          <div class="sb-spell" data-spell="r" draggable="true">
+            <div class="sb-spell-top"><span class="sb-name">Strela</span></div>
+            <div class="sb-lvl" id="u-r">0/5</div>
+          </div>
+          <div class="sb-spell" data-spell="c" draggable="true">
+            <div class="sb-spell-top"><span class="sb-name">Naraz</span></div>
+            <div class="sb-lvl" id="u-c">0/5</div>
+          </div>
+          <div class="sb-spell" data-spell="v" draggable="true">
+            <div class="sb-spell-top"><span class="sb-name">Pole</span></div>
+            <div class="sb-lvl" id="u-v">0/5</div>
+          </div>
+        </div>
       </div>
     </div>
 

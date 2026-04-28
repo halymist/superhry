@@ -315,63 +315,180 @@ html, body {
   pointer-events: auto;
 }
 
+.hud .spellbook-toggle {
+  position: absolute;
+  left: calc(50% + 196px);
+  bottom: 16px;
+  height: 78px;
+  width: 96px;
+  border: 1px solid #4f73b2;
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(47, 71, 114, 0.92), rgba(21, 32, 54, 0.92));
+  color: #d8ebff;
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.hud .gold-floating {
+  position: absolute;
+  left: calc(50% + 196px);
+  bottom: 100px;
+  min-width: 96px;
+  text-align: center;
+  border: 1px solid #4f73b2;
+  border-radius: 8px;
+  background: rgba(19, 30, 52, 0.94);
+  color: #d8ebff;
+  font-size: 11px;
+  padding: 5px 6px;
+  pointer-events: none;
+}
+
 .hud .spellbook-panel {
   position: absolute;
-  left: 12px;
+  left: calc(50% + 298px);
   bottom: 16px;
-  width: 188px;
+  width: 286px;
+  max-height: 56vh;
   background: rgba(18, 31, 54, 0.88);
   border: 1px solid #6f8bc1;
   border-radius: 8px;
-  padding: 8px;
+  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 8px;
   pointer-events: auto;
+  overflow: auto;
+}
+
+.hud .spellbook-panel .sb-head {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.hud .spellbook-panel .sb-close {
+  border: 1px solid #5379ba;
+  border-radius: 6px;
+  background: rgba(30, 47, 79, 0.95);
+  color: #dceeff;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 7px;
+  cursor: pointer;
 }
 
 .hud .spellbook-panel .sb-meta {
   font-size: 12px;
   color: #cce6ff;
-  margin-bottom: 4px;
 }
 
-.hud .spellbook-panel .sb-row {
+.hud .spellbook-panel .sb-inline-upgrades {
   display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  border: 1px solid #3f5f98;
+  gap: 6px;
+}
+
+.hud .spellbook-panel .sb-inline-upgrade {
+  border: 1px solid #4a6eae;
   border-radius: 6px;
-  background: linear-gradient(180deg, rgba(54, 78, 124, 0.86), rgba(25, 38, 62, 0.9));
-  color: #dff2ff;
-  padding: 4px 7px;
+  background: rgba(29, 45, 75, 0.95);
+  color: #e3f2ff;
+  padding: 4px 8px;
   font: inherit;
   font-size: 11px;
   cursor: pointer;
 }
 
-.hud .spellbook-panel .sb-row:hover {
+.hud .spellbook-panel .sb-inline-upgrade.disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.hud .spellbook-panel .sb-spells {
+  display: grid;
+  grid-template-columns: repeat(3, 80px);
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.hud .spellbook-panel .sb-spell {
+  border: 1px solid #3f5f98;
+  border-radius: 6px;
+  background: linear-gradient(180deg, rgba(52, 77, 121, 0.86), rgba(23, 35, 58, 0.9));
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 80px;
+  min-height: 80px;
+  justify-content: space-between;
+}
+
+.hud .spellbook-panel .sb-spell[draggable="true"] {
+  cursor: grab;
+}
+
+.hud .spellbook-panel .sb-spell:hover {
   border-color: #89b8ff;
 }
 
-.hud .spellbook-panel .sb-row:disabled {
+.hud .spellbook-panel .sb-spell.dragging {
   opacity: 0.55;
-  cursor: default;
-  filter: grayscale(0.35);
+}
+
+.hud .spellbook-panel .sb-spell.locked {
+  filter: grayscale(0.5);
+  opacity: 0.8;
+}
+
+.hud .spellbook-panel .sb-spell-top {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+
+.hud .spellbook-panel .sb-name {
+  flex: 1;
+  font-size: 11px;
+  color: #e4f1ff;
+  text-align: center;
+}
+
+.hud .spellbook-panel .sb-lvl {
+  font-size: 11px;
+  color: #b7d5ff;
+  text-align: center;
 }
 
 @media (max-width: 980px) {
   .hud .spellbook-panel {
     left: 12px;
-    right: auto;
-    bottom: 12px;
-    width: 164px;
+    right: 12px;
+    bottom: 100px;
+    width: auto;
+    max-height: 46vh;
   }
   .hud .ability-bar {
     left: 12px;
     transform: none;
     bottom: 12px;
+  }
+  .hud .spellbook-toggle {
+    left: auto;
+    right: 12px;
+    bottom: 12px;
+    width: 88px;
+    height: 64px;
+  }
+  .hud .gold-floating {
+    left: auto;
+    right: 12px;
+    bottom: 82px;
+    min-width: 88px;
   }
   .hud .ability-slot {
     width: 64px;
@@ -414,6 +531,16 @@ html, body {
 .hud .ability-slot.active {
   border-color: #5ce3ff;
   box-shadow: 0 0 0 1px rgba(92,227,255,0.38), 0 0 18px rgba(92,227,255,0.24);
+}
+
+.hud .ability-slot.empty {
+  border-style: dashed;
+  border-color: #466089;
+}
+
+.hud .ability-slot.drag-over {
+  border-color: #7bffad;
+  box-shadow: 0 0 0 1px rgba(123,255,173,0.48), 0 0 18px rgba(123,255,173,0.26);
 }
 
 .hud .ability-slot.targeting {

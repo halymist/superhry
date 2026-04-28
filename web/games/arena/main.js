@@ -38,6 +38,11 @@ const R_COOLDOWN_MS = 2500;
 const R_COST       = 75;
 const R_CAST_MS    = 1000;
 
+// C dash (Charge)
+const C_COOLDOWN_MS = 7000;
+const C_COST        = 40;
+const C_DASH_DIST   = 6.5;
+
 const PLAYER_RADIUS = 0.6;
 
 // E blink
@@ -53,10 +58,27 @@ const W_SPEED_MULT = 1.3;
 const W_DURATION_MS = 8000;
 const W_COST = 30;
 const UP_MAX = 5;
+const C_DASH_MS     = 220;
 
 // camera pan
 const CAM_PAN_EDGE = 0.82;
 const CAM_PAN_SPEED = 24.0;
+
+// V pool
+const V_COOLDOWN_MS = 13000;
+const V_COST        = 55;
+const V_DURATION_MS = 5000;
+const V_BASE_RADIUS = 1.9;
+const V_RADIUS_STEP = 0.22;
+
+const SPELL_DEFS = {
+  q: { id: 'q', name: 'Salva' },
+  w: { id: 'w', name: 'Sprint' },
+  e: { id: 'e', name: 'Teleport' },
+  r: { id: 'r', name: 'Strela' },
+  c: { id: 'c', name: 'Naraz' },
+  v: { id: 'v', name: 'Pole' },
+};
 
 // pickups
 const PICKUP_RADIUS = 0.6;
@@ -68,7 +90,12 @@ const REDITEL_BEAM_WARN_RANGE = 44.0;
 const INTERP_DELAY_MS = 120; // remote interpolation
 const SEND_HZ = 20;
 
+let vReadyAt = 0;
+const chargeAnim = { active: false, startAt: 0, endAt: 0, fromX: 0, fromZ: 0, toX: 0, toZ: 0 };
+
 function upgradeCost(kind, lvl) {
+  void kind;
+  void lvl;
   return 3;
 }
 
@@ -90,15 +117,43 @@ function refreshSpellbookUi() {
   upWEl.textContent = `${myUp.w}/${UP_MAX}`;
   upEEl.textContent = `${myUp.e}/${UP_MAX}`;
   upREl.textContent = `${myUp.r}/${UP_MAX}`;
-  const lvlByKind = { hp: myUp.hp, mana: myUp.mana, q: myUp.q, w: myUp.w, e: myUp.e, r: myUp.r };
-  for (const btn of spellbookRows) {
-    const kind = btn.dataset.upgrade;
+  upCEl.textContent = `${myUp.c}/${UP_MAX}`;
+  upVEl.textContent = `${myUp.v}/${UP_MAX}`;
+  const lvlByKind = { hp: myUp.hp, mana: myUp.mana, q: myUp.q, w: myUp.w, e: myUp.e, r: myUp.r, c: myUp.c, v: myUp.v };
+  for (const inline of spellbookUpgradeInline) {
+    const kind = inline.dataset.upgrade;
     const lvl = lvlByKind[kind] || 0;
     const cost = upgradeCost(kind, lvl);
-    btn.title = lvl >= UP_MAX ? 'MAX' : `Cena: ${cost} Prémie`;
-    btn.disabled = lvl >= UP_MAX || myGold < cost;
+    inline.title = lvl >= UP_MAX ? 'MAX' : `Cena: ${cost} Prémie`;
+    inline.classList.toggle('disabled', lvl >= UP_MAX || myGold < cost);
   }
+
+  for (const card of spellCards) {
+    const kind = card.dataset.spell;
+    const lvl = lvlByKind[kind] || 0;
+    card.classList.toggle('locked', lvl <= 0);
+  }
+
+  renderEquippedSlots();
   if (goldText) goldText.textContent = String(myGold);
+}
+
+function poolRadiusForLevel(level) {
+  return V_BASE_RADIUS + Math.max(0, level) * V_RADIUS_STEP;
+}
+
+function tryCastPool() {
+  const me = players.get(myId);
+  if (!me || !me.alive) return;
+  if ((myUp.v || 0) <= 0) return;
+  const now = performance.now();
+  if (now < vReadyAt) return;
+  if (myMana < V_COST) return;
+
+  vReadyAt = now + V_COOLDOWN_MS;
+  myMana = Math.max(0, myMana - V_COST);
+  spawnPoolEffect(myId, poolRadiusForLevel(myUp.v || 0), V_DURATION_MS);
+  send({ type: 'cast', data: { kind: 'v' } });
 }
 
 // ---------------- DOM / modal ----------------
@@ -121,16 +176,32 @@ const slotEMask = document.getElementById('slot-e-mask');
 const slotR     = document.getElementById('slot-r');
 const slotRMask = document.getElementById('slot-r-mask');
 const spellbookPanel = document.getElementById('spellbook-panel');
+const spellbookToggle = document.getElementById('spellbook-toggle');
+const spellbookClose = document.getElementById('spellbook-close');
 const respawnIndicator = document.getElementById('respawn-indicator');
-const spellbookRows = Array.from(document.querySelectorAll('#spellbook-panel .sb-row'));
+const spellbookUpgradeInline = Array.from(document.querySelectorAll('#spellbook-panel .sb-inline-upgrade'));
+const spellCards = Array.from(document.querySelectorAll('#spellbook-panel .sb-spell'));
 const upHpEl = document.getElementById('u-hp');
 const upManaEl = document.getElementById('u-mana');
 const upQEl = document.getElementById('u-q');
 const upWEl = document.getElementById('u-w');
 const upEEl = document.getElementById('u-e');
 const upREl = document.getElementById('u-r');
+const upCEl = document.getElementById('u-c');
+const upVEl = document.getElementById('u-v');
 const rCastWrap = document.getElementById('r-cast-wrap');
 const rCastFill = document.getElementById('r-cast-fill');
+
+const slotEls = { q: slotQ, w: slotW, e: slotE, r: slotR };
+const slotMaskEls = { q: slotQMask, w: slotWMask, e: slotEMask, r: slotRMask };
+const slotLabelEls = {
+  q: slotQ?.querySelector('.label'),
+  w: slotW?.querySelector('.label'),
+  e: slotE?.querySelector('.label'),
+  r: slotR?.querySelector('.label'),
+};
+
+const equippedBySlot = { q: null, w: null, e: null, r: null };
 
 const savedName = sessionStorage.getItem('superhry-name') || '';
 nameInput.value = savedName;
@@ -550,13 +621,14 @@ let startHP = 100;
 let startMana = 100;
 let myMana = 100; // optimistic local prediction; corrected by snapshots
 let myGold = 0;
-let myUp = { hp: 0, mana: 0, q: 0, w: 0, e: 0, r: 0 };
+let myUp = { hp: 0, mana: 0, q: 0, w: 0, e: 0, r: 0, c: 0, v: 0 };
 
 const players = new Map(); // id -> { mesh, name, hp, alive, snapshots: [{t,x,z,facing}], lastSeen }
 const projectiles = []; // {pid, owner, x, z, vx, vz, dist, max, mesh, hitDone}
 const pickups = new Map(); // id -> { kind, x, z, mesh }
 const npcs = new Map(); // id -> { mesh, kind, name, say, sayUntil }
 const beamWarnings = [];
+const activePools = [];
 const projectileTargets = [];
 const projectileDogTargets = [];
 const projectileBlockers = [];
@@ -568,6 +640,7 @@ let qBurstNextShotAt = 0;
 let wActiveUntil = 0;
 let eReadyAt = 0;
 let rReadyAt = 0;
+let cReadyAt = 0;
 let aaReadyAt = 0;
 let rCastUntil = 0;
 let qMode = false;
@@ -711,7 +784,7 @@ function onMessage(raw) {
       startMana = m.data.startMana || 100;
       myMana = startMana;
       myGold = 0;
-      myUp = { hp: 0, mana: 0, q: 0, w: 0, e: 0, r: 0 };
+      myUp = { hp: 0, mana: 0, q: 0, w: 0, e: 0, r: 0, c: 0, v: 0 };
       refreshSpellbookUi();
       break;
 
@@ -720,12 +793,16 @@ function onMessage(raw) {
       break;
 
     case 'fire':
-      // ignore our own fire echo (we already spawned it locally)
-      if (m.data.owner === myId) break;
+      if (m.data.kind === 'pool_cast') {
+        spawnPoolEffect(m.data.owner, m.data.dx || V_BASE_RADIUS, (m.data.dz || 5) * 1000);
+        break;
+      }
       if (m.data.kind === 'reditel_beam_warn') {
         spawnBeamWarning(m.data);
         break;
       }
+      // ignore our own fire echo (we already spawned it locally)
+      if (m.data.owner === myId) break;
       spawnProjectile(m.data);
       break;
 
@@ -768,6 +845,8 @@ function handleSnapshot(snap) {
     pl.upW = p.upW || 0;
     pl.upE = p.upE || 0;
     pl.upR = p.upR || 0;
+    pl.upC = p.upC || 0;
+    pl.upV = p.upV || 0;
     pl.respawnAt = p.respawnAt || 0;
     pl.alive = p.alive;
     if (pl.mesh.userData.hpSprite) {
@@ -820,6 +899,8 @@ function handleSnapshot(snap) {
       w: me.upW || 0,
       e: me.upE || 0,
       r: me.upR || 0,
+      c: me.upC || 0,
+      v: me.upV || 0,
     };
     mpText.textContent = `${Math.round(myMana)}/${maxMana}`;
     mpFill.style.width = `${Math.max(0, myMana) / maxMana * 100}%`;
@@ -887,22 +968,99 @@ function pickColor(id) {
   return palette[id % palette.length];
 }
 
+function isSpellUnlocked(kind) {
+  return (myUp[kind] || 0) > 0;
+}
+
+function equipSpellToSlot(spellKind, slotKey) {
+  for (const k of Object.keys(equippedBySlot)) {
+    if (equippedBySlot[k] === spellKind) equippedBySlot[k] = null;
+  }
+  equippedBySlot[slotKey] = spellKind;
+  renderEquippedSlots();
+}
+
+function renderEquippedSlots() {
+  for (const slotKey of Object.keys(slotEls)) {
+    const el = slotEls[slotKey];
+    const labelEl = slotLabelEls[slotKey];
+    const spellKind = equippedBySlot[slotKey];
+    const def = spellKind ? SPELL_DEFS[spellKind] : null;
+    if (labelEl) labelEl.textContent = def ? def.name : 'Prázdné';
+    if (!el) continue;
+    el.classList.toggle('active', !!def);
+    el.classList.toggle('empty', !def);
+  }
+}
+
+function castEquipped(slotKey) {
+  const spellKind = equippedBySlot[slotKey];
+  if (!spellKind) return;
+  if (spellKind === 'q') {
+    tryFireQ();
+    return;
+  }
+  if (spellKind === 'w') {
+    tryCastW();
+    return;
+  }
+  if (spellKind === 'e') {
+    updateMouseWorld();
+    tryTeleport();
+    return;
+  }
+  if (spellKind === 'r') {
+    tryFireR();
+    return;
+  }
+  if (spellKind === 'c') {
+    tryCastCharge();
+    return;
+  }
+  if (spellKind === 'v') {
+    tryCastPool();
+  }
+}
+
+function spellCooldownRatio(kind, now, statsNow) {
+  if (kind === 'q') return Math.max(0, Math.min(1, Math.max(0, qReadyAt - now) / Q_COOLDOWN_MS));
+  if (kind === 'w') return Math.max(0, Math.min(1, Math.max(0, wActiveUntil - now) / Math.max(1, statsNow.wDuration)));
+  if (kind === 'e') return Math.max(0, Math.min(1, Math.max(0, eReadyAt - now) / E_COOLDOWN_MS));
+  if (kind === 'r') return Math.max(0, Math.min(1, Math.max(0, rReadyAt - now) / R_COOLDOWN_MS));
+  if (kind === 'c') return Math.max(0, Math.min(1, Math.max(0, cReadyAt - now) / C_COOLDOWN_MS));
+  if (kind === 'v') return Math.max(0, Math.min(1, Math.max(0, vReadyAt - now) / V_COOLDOWN_MS));
+  return 0;
+}
+
+function canCastSpell(kind, alive, now) {
+  if (!alive || !kind) return false;
+  if (kind === 'q') return myMana >= Q_COST && now >= qReadyAt && now >= qBurstUntil;
+  if (kind === 'w') return myMana >= W_COST && now >= wActiveUntil;
+  if (kind === 'e') return myMana >= E_COST && now >= eReadyAt;
+  if (kind === 'r') return myMana >= R_COST && now >= rReadyAt && now >= rCastUntil;
+  if (kind === 'c') return myUp.c > 0 && myMana >= C_COST && now >= cReadyAt;
+  if (kind === 'v') return myUp.v > 0 && myMana >= V_COST && now >= vReadyAt;
+  return false;
+}
+
 // ---------------- input ----------------
 window.addEventListener('keydown', e => {
   if (nameModal.style.display !== 'none') return;
   if (e.code === 'KeyQ') {
     e.preventDefault();
-    tryFireQ();
+    castEquipped('q');
   } else if (e.code === 'KeyW') {
     e.preventDefault();
-    tryCastW();
+    castEquipped('w');
   } else if (e.code === 'KeyE') {
     e.preventDefault();
-    updateMouseWorld();
-    tryTeleport();
+    castEquipped('e');
   } else if (e.code === 'KeyR') {
     e.preventDefault();
-    tryEnterRMode();
+    castEquipped('r');
+  } else if (e.code === 'KeyB') {
+    e.preventDefault();
+    spellbookPanel.hidden = !spellbookPanel.hidden;
   } else if (e.code === 'Space') {
     e.preventDefault();
     centerCameraOnMe();
@@ -911,25 +1069,64 @@ window.addEventListener('keydown', e => {
   }
 });
 
-slotQ.addEventListener('click', () => {
-  tryFireQ();
-});
-slotW.addEventListener('click', () => {
-  tryCastW();
-});
-slotE.addEventListener('click', () => {
-  updateMouseWorld();
-  tryTeleport();
-});
-slotR.addEventListener('click', () => {
-  tryFireR();
+slotQ.addEventListener('click', () => castEquipped('q'));
+slotW.addEventListener('click', () => castEquipped('w'));
+slotE.addEventListener('click', () => castEquipped('e'));
+slotR.addEventListener('click', () => castEquipped('r'));
+
+spellbookToggle?.addEventListener('click', () => {
+  spellbookPanel.hidden = !spellbookPanel.hidden;
 });
 
-for (const row of spellbookRows) {
-  row.addEventListener('click', () => {
-    const kind = row.dataset.upgrade;
+spellbookClose?.addEventListener('click', () => {
+  spellbookPanel.hidden = true;
+});
+
+for (const inline of spellbookUpgradeInline) {
+  inline.addEventListener('click', () => {
+    const kind = inline.dataset.upgrade;
     if (!kind) return;
+    const lvl = myUp[kind] || 0;
+    if (lvl >= UP_MAX) return;
+    if (myGold < upgradeCost(kind, lvl)) return;
     send({ type: 'upgrade', data: { kind } });
+  });
+}
+
+for (const card of spellCards) {
+  card.addEventListener('click', () => {
+    const kind = card.dataset.spell;
+    if (!kind || !(kind in SPELL_DEFS)) return;
+    send({ type: 'upgrade', data: { kind } });
+  });
+  card.addEventListener('dragstart', e => {
+    const kind = card.dataset.spell;
+    if (!kind || !isSpellUnlocked(kind)) {
+      e.preventDefault();
+      return;
+    }
+    card.classList.add('dragging');
+    e.dataTransfer?.setData('text/spell-kind', kind);
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+  });
+  card.addEventListener('dragend', () => card.classList.remove('dragging'));
+}
+
+for (const slotKey of Object.keys(slotEls)) {
+  const slotEl = slotEls[slotKey];
+  if (!slotEl) continue;
+  slotEl.addEventListener('dragover', e => {
+    e.preventDefault();
+    slotEl.classList.add('drag-over');
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+  });
+  slotEl.addEventListener('dragleave', () => slotEl.classList.remove('drag-over'));
+  slotEl.addEventListener('drop', e => {
+    e.preventDefault();
+    slotEl.classList.remove('drag-over');
+    const spellKind = e.dataTransfer?.getData('text/spell-kind');
+    if (!spellKind || !(spellKind in SPELL_DEFS) || !isSpellUnlocked(spellKind)) return;
+    equipSpellToSlot(spellKind, slotKey);
   });
 }
 
@@ -1002,6 +1199,9 @@ function setupSpawn() {
   hasMoveTarget = false;
   myVel.set(0, 0);
   wActiveUntil = 0;
+  cReadyAt = 0;
+  vReadyAt = 0;
+  chargeAnim.active = false;
   qMode = false;
   rMode = false;
   blink.active = false;
@@ -1136,6 +1336,36 @@ function tryFireR() {
   slotR.classList.remove('targeting');
 }
 
+function tryCastCharge() {
+  const me = players.get(myId);
+  if (!me || !me.alive) return;
+  if ((myUp.c || 0) <= 0) return;
+  const now = performance.now();
+  if (now < cReadyAt) return;
+  if (myMana < C_COST) return;
+
+  const dirX = Math.sin(myFacing);
+  const dirZ = Math.cos(myFacing);
+  const end = segmentEndpoint(myPos.x, myPos.z, dirX, dirZ, C_DASH_DIST, PLAYER_RADIUS);
+
+  chargeAnim.active = true;
+  chargeAnim.startAt = now;
+  chargeAnim.endAt = now + C_DASH_MS;
+  chargeAnim.fromX = myPos.x;
+  chargeAnim.fromZ = myPos.z;
+  chargeAnim.toX = Math.max(-serverHalfX, Math.min(serverHalfX, end.x));
+  chargeAnim.toZ = Math.max(-serverHalfZ, Math.min(serverHalfZ, end.z));
+
+  hasMoveTarget = false;
+  rightMouseDown = false;
+  myVel.set(0, 0);
+
+  cReadyAt = now + C_COOLDOWN_MS;
+  myMana = Math.max(0, myMana - C_COST);
+  send({ type: 'cast', data: { kind: 'c' } });
+  send({ type: 'state', data: { x: chargeAnim.toX, z: chargeAnim.toZ, facing: myFacing } });
+}
+
 function tryAutoAttack() {
   const me = players.get(myId);
   if (!me || !me.alive) return;
@@ -1175,7 +1405,7 @@ function projectileSpec(kind, boost = null) {
     case 'reditel':
       return { radius: 0.22, startSpeed: 12.0, maxSpeed: 12.0, accel: 0, range: 10.0, dmg: 9, pierce: true };
     case 'reditel_beam':
-      return { radius: 0.62, startSpeed: 78.0, maxSpeed: 78.0, accel: 0, range: 44.0, dmg: 50, pierce: true };
+      return { radius: 0.78, startSpeed: 78.0, maxSpeed: 78.0, accel: 0, range: 44.0, dmg: 80, pierce: true };
     case 'r':
       return { radius: b.rRadius, startSpeed: R_SPEED_START, maxSpeed: R_SPEED_MAX, accel: R_ACCEL, range: R_RANGE, dmg: b.rDmg, pierce: true };
     case 'aa':
@@ -1252,6 +1482,40 @@ function updateBeamWarnings(now) {
     }
     const k = (now - w.startAt) / Math.max(1, w.endAt - w.startAt);
     w.line.material.opacity = 0.95 - 0.55 * k;
+  }
+}
+
+function spawnPoolEffect(ownerId, radius, durationMS) {
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(Math.max(0.6, radius-0.2), radius, 36),
+    new THREE.MeshBasicMaterial({ color: 0x76ffd1, transparent: true, opacity: 0.42, side: THREE.DoubleSide })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.06;
+  scene.add(ring);
+  activePools.push({ ownerId, ring, startAt: performance.now(), endAt: performance.now() + durationMS });
+}
+
+function updatePools(now) {
+  for (let i = activePools.length - 1; i >= 0; i--) {
+    const p = activePools[i];
+    if (now >= p.endAt) {
+      scene.remove(p.ring);
+      p.ring.geometry.dispose();
+      p.ring.material.dispose();
+      activePools.splice(i, 1);
+      continue;
+    }
+    const owner = players.get(p.ownerId);
+    if (p.ownerId === myId) {
+      p.ring.position.x = myPos.x;
+      p.ring.position.z = myPos.z;
+    } else if (owner) {
+      p.ring.position.x = owner.mesh.position.x;
+      p.ring.position.z = owner.mesh.position.z;
+    }
+    const t = (now - p.startAt) * 0.01;
+    p.ring.material.opacity = 0.32 + 0.13 * (0.5 + 0.5 * Math.sin(t));
   }
 }
 
@@ -1499,10 +1763,20 @@ function loop(t) {
 
   // local movement: right-click to move with immediate direction changes
   if (alive) {
+    if (chargeAnim.active) {
+      const nowMs = performance.now();
+      const k = Math.max(0, Math.min(1, (nowMs - chargeAnim.startAt) / Math.max(1, chargeAnim.endAt - chargeAnim.startAt)));
+      myPos.x = chargeAnim.fromX + (chargeAnim.toX - chargeAnim.fromX) * k;
+      myPos.z = chargeAnim.fromZ + (chargeAnim.toZ - chargeAnim.fromZ) * k;
+      hasMoveTarget = false;
+      myVel.set(0, 0);
+      if (k >= 1) chargeAnim.active = false;
+    }
+
     const sprintActive = performance.now() < wActiveUntil;
     const moveSpeedNow = MOVE_SPEED * (sprintActive ? W_SPEED_MULT : 1);
     myVel.set(0, 0);
-    if (hasMoveTarget) {
+    if (!chargeAnim.active && hasMoveTarget) {
       const dx = moveTarget.x - myPos.x;
       const dz = moveTarget.y - myPos.z;
       const dist = Math.hypot(dx, dz);
@@ -1521,11 +1795,15 @@ function loop(t) {
       myMana = Math.min(maxMana, myMana + R_COST);
     }
 
-    const nx = myPos.x + myVel.x * dt;
-    const nz = myPos.z + myVel.y * dt;
-    const res = resolveMove(myPos.x, myPos.z, nx, nz, PLAYER_RADIUS);
-    const moved = Math.hypot(res.x - myPos.x, res.z - myPos.z);
-    myPos.x = res.x; myPos.z = res.z;
+    let moved = 0;
+    if (!chargeAnim.active) {
+      const nx = myPos.x + myVel.x * dt;
+      const nz = myPos.z + myVel.y * dt;
+      const res = resolveMove(myPos.x, myPos.z, nx, nz, PLAYER_RADIUS);
+      moved = Math.hypot(res.x - myPos.x, res.z - myPos.z);
+      myPos.x = res.x;
+      myPos.z = res.z;
+    }
     myPos.x = Math.max(-serverHalfX, Math.min(serverHalfX, myPos.x));
     myPos.z = Math.max(-serverHalfZ, Math.min(serverHalfZ, myPos.z));
 
@@ -1556,6 +1834,7 @@ function loop(t) {
     qBurstUntil = 0;
     rMode = false;
     rCastUntil = 0;
+    chargeAnim.active = false;
     hasMoveTarget = false;
     myVel.set(0, 0);
     sprintTrail.visible = false;
@@ -1641,6 +1920,7 @@ function loop(t) {
   refreshProjectileCollisionTargets();
   updateProjectiles(dt);
   updateBeamWarnings(performance.now());
+  updatePools(performance.now());
   updatePickups();
   updateNpcTalkVisibility();
 
@@ -1717,20 +1997,19 @@ function loop(t) {
   // cooldown HUD
   const now = performance.now();
   const statsNow = myAbilityStats();
-  const qRemain = Math.max(0, qReadyAt - now);
-  slotQMask.style.transform = `scaleY(${Math.max(0, Math.min(1, qRemain / Q_COOLDOWN_MS))})`;
   const wRemain = Math.max(0, wActiveUntil - now);
-  slotWMask.style.transform = `scaleY(${Math.max(0, Math.min(1, wRemain / statsNow.wDuration))})`;
+  for (const slotKey of Object.keys(slotEls)) {
+    const mask = slotMaskEls[slotKey];
+    const equipped = equippedBySlot[slotKey];
+    const ratio = spellCooldownRatio(equipped, now, statsNow);
+    if (mask) mask.style.transform = `scaleY(${ratio})`;
+  }
   if (wRemain > 0) {
     buffWIndicator.hidden = false;
     buffWIndicator.textContent = `Sprint ${Math.ceil(wRemain / 1000)}s`;
   } else {
     buffWIndicator.hidden = true;
   }
-  const eRemain = Math.max(0, eReadyAt - now);
-  slotEMask.style.transform = `scaleY(${Math.max(0, Math.min(1, eRemain / E_COOLDOWN_MS))})`;
-  const rRemain = Math.max(0, rReadyAt - now);
-  slotRMask.style.transform = `scaleY(${Math.max(0, Math.min(1, rRemain / R_COOLDOWN_MS))})`;
   const rCastRemain = Math.max(0, rCastUntil - now);
   if (rCastWrap && rCastFill) {
     if (alive && rCastRemain > 0) {
@@ -1744,19 +2023,17 @@ function loop(t) {
   }
 
   // Grey out abilities if mana is insufficient.
-  const canQ = alive && myMana >= Q_COST;
-  const canW = alive && myMana >= W_COST && now >= wActiveUntil;
-  const canE = alive && myMana >= E_COST;
-  const canR = alive && myMana >= R_COST;
-  slotQ.classList.toggle('disabled', !canQ);
-  slotW.classList.toggle('disabled', !canW);
-  slotE.classList.toggle('disabled', !canE);
-  slotR.classList.toggle('disabled', !canR);
-  if (!canQ && qMode) {
+  for (const slotKey of Object.keys(slotEls)) {
+    const slot = slotEls[slotKey];
+    const equipped = equippedBySlot[slotKey];
+    const can = canCastSpell(equipped, alive, now);
+    slot.classList.toggle('disabled', !equipped || !can);
+  }
+  if (!canCastSpell('q', alive, now) && qMode) {
     qMode = false;
     slotQ.classList.remove('targeting');
   }
-  if (!canR && rMode) {
+  if (!canCastSpell('r', alive, now) && rMode) {
     rMode = false;
     slotR.classList.remove('targeting');
   }

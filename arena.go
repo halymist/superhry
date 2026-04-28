@@ -25,7 +25,7 @@ const (
 	startHP      = 100
 	startMana    = 100
 	hitDamage    = 40
-	respawnMS    = 10000
+	respawnMS    = 6000
 	mapHalfX     = 36.0
 	mapHalfZ     = 22.0
 	maxNameLen   = 16
@@ -72,9 +72,17 @@ const (
 	reditelBeamCDMS     = 12000
 	reditelBeamSpeed    = 78.0
 	reditelBeamRange    = 44.0
-	reditelBeamRad      = 0.62
-	reditelBeamDmg      = 50
+	reditelBeamRad      = 0.78
+	reditelBeamDmg      = 80
 	reditelBeamWindupMS = 700
+
+	chargeCost       = 40
+	chargeDashDist   = 6.5
+	chargeHitRadius  = 1.2
+	chargeDamageBase = 16
+	chargeDamageStep = 12
+
+	V_COST = 55
 
 	playerRadius = 0.6
 
@@ -93,6 +101,10 @@ func manaCost(kind string) int {
 		return 75
 	case "e":
 		return 50
+	case "c":
+		return chargeCost
+	case "v":
+		return V_COST
 	}
 	return 0
 }
@@ -123,6 +135,8 @@ type playerState struct {
 	UpW      int     `json:"upW"`
 	UpE      int     `json:"upE"`
 	UpR      int     `json:"upR"`
+	UpC      int     `json:"upC"`
+	UpV      int     `json:"upV"`
 	Alive    bool    `json:"alive"`
 	RespawnT int64   `json:"respawnAt,omitempty"` // unix ms; 0 if alive
 }
@@ -255,7 +269,7 @@ type cPickup struct {
 }
 
 type cUpgrade struct {
-	Kind string `json:"kind"` // "hp","mana","q","w","e","r"
+	Kind string `json:"kind"` // "hp","mana","q","w","e","r","c","v"
 }
 
 // --- outbound server messages ---
@@ -346,9 +360,18 @@ type ArenaHub struct {
 	lastPickup time.Time
 	lastTick   time.Time
 	respawnAt  map[uint64]int64
+	auras      map[uint64]*playerAura
 	npcs       map[uint64]*npcRuntime
 	npcProjs   map[uint64]*npcProjectile
 	nextNpcPID atomic.Uint64
+}
+
+type playerAura struct {
+	Owner    uint64
+	EndMS    int64
+	NextTick int64
+	Radius   float64
+	Damage   int
 }
 
 type stateUpdate struct {
@@ -402,6 +425,7 @@ func NewArenaHub() *ArenaHub {
 		pickups:    make(map[uint64]*pickup),
 		lastTick:   time.Now(),
 		respawnAt:  make(map[uint64]int64),
+		auras:      make(map[uint64]*playerAura),
 		npcs:       make(map[uint64]*npcRuntime),
 		npcProjs:   make(map[uint64]*npcProjectile),
 	}
@@ -447,6 +471,7 @@ func (h *ArenaHub) Run() {
 		case c := <-h.unregister:
 			if _, ok := h.clients[c.id]; ok {
 				delete(h.clients, c.id)
+				delete(h.auras, c.id)
 				close(c.send)
 				h.broadcastJSON(sMsg{Type: "leave", Data: sLeave{ID: c.id}})
 			}
@@ -489,8 +514,75 @@ func (h *ArenaHub) Run() {
 			h.expirePickups(now)
 			h.maybeSpawnPickup(now)
 			h.updateNPCs(now, dt)
+			h.updateAuras(now.UnixMilli())
 			h.updateNPCProjectiles(dt)
 			h.sendSnapshot()
+		}
+	}
+}
+
+func (h *ArenaHub) updateAuras(nowMS int64) {
+	for owner, a := range h.auras {
+		if nowMS >= a.EndMS {
+			delete(h.auras, owner)
+			continue
+		}
+		c, ok := h.clients[owner]
+		if !ok {
+			delete(h.auras, owner)
+			continue
+		}
+		c.mu.Lock()
+		alive := c.state.Alive
+		ox := c.state.X
+		oz := c.state.Z
+		c.mu.Unlock()
+		if !alive {
+			delete(h.auras, owner)
+			continue
+		}
+		if nowMS < a.NextTick {
+			continue
+		}
+		a.NextTick = nowMS + 500
+
+		hitR2Player := (a.Radius + playerRadius) * (a.Radius + playerRadius)
+		for id, t := range h.clients {
+			if id == owner {
+				continue
+			}
+			t.mu.Lock()
+			tAlive := t.state.Alive
+			tx := t.state.X
+			tz := t.state.Z
+			t.mu.Unlock()
+			if !tAlive {
+				continue
+			}
+			dx := tx - ox
+			dz := tz - oz
+			if dx*dx+dz*dz <= hitR2Player {
+				h.applyHit(hitEvent{shooter: owner, target: id, pid: 0, dmg: a.Damage})
+			}
+		}
+
+		for id, n := range h.npcs {
+			if !n.state.Alive {
+				continue
+			}
+			if n.state.Kind != "pes" && n.state.Kind != "reditel" {
+				continue
+			}
+			nrad := 0.6
+			if n.state.Kind == "reditel" {
+				nrad = 1.05
+			}
+			r := a.Radius + nrad
+			dx := n.state.X - ox
+			dz := n.state.Z - oz
+			if dx*dx+dz*dz <= r*r {
+				h.applyHit(hitEvent{shooter: owner, target: id, pid: 0, dmg: a.Damage})
+			}
 		}
 	}
 }
@@ -819,7 +911,7 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 						d2 := dx*dx + dz*dz
 						if d2 <= sofieFollowDrop*sofieFollowDrop {
 							following = true
-							if nowMS >= n.nextSayMS {
+							if nowMS >= n.nextSayMS && (n.state.SayUntil <= 0 || nowMS >= n.state.SayUntil) {
 								n.state.Say = pickDifferentLine(sofieLines, n.state.Say)
 								n.state.SayUntil = nowMS + npcSayMS
 								n.nextSayMS = nowMS + 2200 + int64(rand.Intn(2200))
@@ -868,9 +960,13 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 						n.aggroID = bestID
 						n.followToMS = nowMS + sofieFollowMS
 						n.pauseToMS = n.followToMS + sofieFollowCDMS
-						n.state.Say = pickDifferentLine(sofieLines, n.state.Say)
-						n.state.SayUntil = nowMS + npcSayMS
-						n.nextSayMS = nowMS + 6000 + int64(rand.Intn(5000))
+						if n.state.SayUntil <= 0 || nowMS >= n.state.SayUntil {
+							n.state.Say = pickDifferentLine(sofieLines, n.state.Say)
+							n.state.SayUntil = nowMS + npcSayMS
+							n.nextSayMS = nowMS + 6000 + int64(rand.Intn(5000))
+						} else {
+							n.nextSayMS = n.state.SayUntil + 2200
+						}
 					}
 				}
 
@@ -1036,15 +1132,14 @@ func (h *ArenaHub) updateNPCProjectiles(dt float64) {
 		pr.X += stepX
 		pr.Z += stepZ
 		pr.Dist += math.Hypot(stepX, stepZ)
-
-		if pr.Dist > pr.Range || math.Abs(pr.X) > mapHalfX+1 || math.Abs(pr.Z) > mapHalfZ+1 {
+		if pr.Dist >= pr.Range || pr.X < -mapHalfX-2 || pr.X > mapHalfX+2 || pr.Z < -mapHalfZ-2 || pr.Z > mapHalfZ+2 {
 			delete(h.npcProjs, id)
 			continue
 		}
 
-		hit := false
 		hitR := pr.Rad + playerRadius
 		hitR2 := hitR * hitR
+		hit := false
 		for _, t := range targets {
 			dx := t.x - pr.X
 			if dx > hitR || dx < -hitR {
@@ -1170,14 +1265,93 @@ func (h *ArenaHub) applyCast(ev castEvent) {
 	}
 	cost := manaCost(ev.kind)
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if !c.state.Alive {
+		c.mu.Unlock()
+		return
+	}
+	if ev.kind == "c" && c.state.UpC <= 0 {
+		c.mu.Unlock()
+		return
+	}
+	if ev.kind == "v" && c.state.UpV <= 0 {
+		c.mu.Unlock()
 		return
 	}
 	if c.state.Mana < cost {
+		c.mu.Unlock()
 		return
 	}
 	c.state.Mana -= cost
+
+	if ev.kind != "c" && ev.kind != "v" {
+		c.mu.Unlock()
+		return
+	}
+
+	upC := c.state.UpC
+	upV := c.state.UpV
+	facing := c.state.Facing
+	sx := c.state.X
+	sz := c.state.Z
+	owner := c.id
+	dx := math.Sin(facing)
+	dz := math.Cos(facing)
+	c.mu.Unlock()
+
+	if ev.kind == "v" {
+		radius := 1.9 + float64(upV)*0.22
+		dmg := 6 + upV*4
+		nowMS := time.Now().UnixMilli()
+		h.auras[owner] = &playerAura{
+			Owner:    owner,
+			EndMS:    nowMS + 5000,
+			NextTick: nowMS,
+			Radius:   radius,
+			Damage:   dmg,
+		}
+		h.broadcastJSON(sMsg{Type: "fire", Data: sFire{Owner: owner, PID: 0, OX: sx, OZ: sz, DX: radius, DZ: 5.0, Kind: "pool_cast", T: nowMS}})
+		return
+	}
+
+	ex := clamp(sx+dx*chargeDashDist, -mapHalfX, mapHalfX)
+	ez := clamp(sz+dz*chargeDashDist, -mapHalfZ, mapHalfZ)
+
+	dmg := chargeDamage(upC)
+	hitR := chargeHitRadius
+
+	for id, t := range h.clients {
+		if id == ev.id {
+			continue
+		}
+		t.mu.Lock()
+		tAlive := t.state.Alive
+		tx := t.state.X
+		tz := t.state.Z
+		t.mu.Unlock()
+		if !tAlive {
+			continue
+		}
+		if pointSegmentDist2(tx, tz, sx, sz, ex, ez) <= hitR*hitR {
+			h.applyHit(hitEvent{shooter: ev.id, target: id, pid: 0, dmg: dmg})
+		}
+	}
+
+	for id, n := range h.npcs {
+		if !n.state.Alive {
+			continue
+		}
+		if n.state.Kind != "pes" && n.state.Kind != "reditel" {
+			continue
+		}
+		nrad := 0.6
+		if n.state.Kind == "reditel" {
+			nrad = 1.05
+		}
+		r := chargeHitRadius + nrad
+		if pointSegmentDist2(n.state.X, n.state.Z, sx, sz, ex, ez) <= r*r {
+			h.applyHit(hitEvent{shooter: ev.id, target: id, pid: 0, dmg: dmg})
+		}
+	}
 }
 
 func (h *ArenaHub) applyFire(ev fireEvent) {
@@ -1278,6 +1452,10 @@ func (h *ArenaHub) applyUpgrade(ev upgradeEvent) {
 		curLvl = c.state.UpE
 	case "r":
 		curLvl = c.state.UpR
+	case "c":
+		curLvl = c.state.UpC
+	case "v":
+		curLvl = c.state.UpV
 	default:
 		return
 	}
@@ -1313,7 +1491,42 @@ func (h *ArenaHub) applyUpgrade(ev upgradeEvent) {
 		c.state.UpE++
 	case "r":
 		c.state.UpR++
+	case "c":
+		c.state.UpC++
+	case "v":
+		c.state.UpV++
 	}
+}
+
+func chargeDamage(level int) int {
+	if level <= 0 {
+		return 0
+	}
+	return chargeDamageBase + level*chargeDamageStep
+}
+
+func pointSegmentDist2(px, pz, ax, az, bx, bz float64) float64 {
+	abx := bx - ax
+	abz := bz - az
+	apx := px - ax
+	apz := pz - az
+	ab2 := abx*abx + abz*abz
+	if ab2 <= 1e-9 {
+		dx := px - ax
+		dz := pz - az
+		return dx*dx + dz*dz
+	}
+	t := (apx*abx + apz*abz) / ab2
+	if t < 0 {
+		t = 0
+	} else if t > 1 {
+		t = 1
+	}
+	cx := ax + abx*t
+	cz := az + abz*t
+	dx := px - cx
+	dz := pz - cz
+	return dx*dx + dz*dz
 }
 
 func (h *ArenaHub) applyHit(ev hitEvent) {
