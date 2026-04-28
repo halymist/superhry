@@ -48,10 +48,10 @@ const (
 	dogTouchRange     = 1.15
 	dogTouchDmg       = 14
 	dogHitCDMS        = 900
-	dogChaseSpeed     = 4.0
-	dogWanderSpeed    = 2.1
-	reditelHP         = 450
-	reditelRegenPS    = 4.0
+	dogChaseSpeed     = 4.7
+	dogWanderSpeed    = 2.45
+	reditelHP         = 720
+	reditelRegenPS    = 12.0
 	namestekTalkCDMS  = 10000
 	sofieFollowRange  = 10.0
 	sofieFollowDrop   = 16.0
@@ -69,6 +69,12 @@ const (
 	reditelBurstMS      = 3000
 	reditelPauseMS      = 1700
 	reditelGoldDropMS   = 12000
+	reditelBeamCDMS     = 12000
+	reditelBeamSpeed    = 78.0
+	reditelBeamRange    = 44.0
+	reditelBeamRad      = 0.62
+	reditelBeamDmg      = 50
+	reditelBeamWindupMS = 700
 
 	playerRadius = 0.6
 
@@ -198,6 +204,10 @@ type npcRuntime struct {
 	nextSayMS  int64
 	nextHitMS  int64
 	nextDropMS int64
+	nextBeamMS int64
+	beamFireMS int64
+	beamDX     float64
+	beamDZ     float64
 	burstEndMS int64
 	pauseToMS  int64
 	followToMS int64
@@ -409,6 +419,7 @@ func (h *ArenaHub) initNPCs() {
 		nextDirMS:  now + 900,
 		nextSayMS:  now + 1000000,
 		nextDropMS: now + reditelGoldDropMS,
+		nextBeamMS: now + 7000,
 	}
 	h.npcs[1003] = &npcRuntime{
 		state:     npcState{ID: 1003, Kind: "pes", Name: "Pes", X: 2, Z: 2, Facing: 0, Scale: 1.0, HP: dogHP, MaxHP: dogHP, Alive: true},
@@ -540,6 +551,8 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 				if n.state.Kind == "reditel" {
 					n.state.HP = reditelHP
 					n.state.MaxHP = reditelHP
+					n.nextBeamMS = nowMS + 7000
+					n.beamFireMS = 0
 				}
 			}
 			continue
@@ -609,16 +622,67 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 				h.spawnPickup("gold", n.state.X, n.state.Z, true, now)
 				n.nextDropMS = nowMS + reditelGoldDropMS + int64(rand.Intn(5000))
 			}
-			if nowMS >= n.pauseToMS && n.burstEndMS == 0 {
+			if n.beamFireMS > 0 {
+				n.vx = 0
+				n.vz = 0
+				if nowMS >= n.beamFireMS {
+					d := math.Hypot(n.beamDX, n.beamDZ)
+					if d > 0.001 {
+						h.spawnReditelBeam(n.state.ID, n.state.X+n.beamDX/d*1.0, n.state.Z+n.beamDZ/d*1.0, n.beamDX/d, n.beamDZ/d)
+					}
+					n.beamFireMS = 0
+				}
+			}
+			if n.beamFireMS == 0 && nowMS >= n.nextBeamMS {
+				var target *client
+				minD2 := math.MaxFloat64
+				for _, c := range h.clients {
+					c.mu.Lock()
+					alive := c.state.Alive
+					px := c.state.X
+					pz := c.state.Z
+					c.mu.Unlock()
+					if !alive {
+						continue
+					}
+					dx := px - n.state.X
+					dz := pz - n.state.Z
+					d2 := dx*dx + dz*dz
+					if d2 < minD2 {
+						minD2 = d2
+						target = c
+					}
+				}
+				if target != nil {
+					target.mu.Lock()
+					tx := target.state.X
+					tz := target.state.Z
+					target.mu.Unlock()
+					dx := tx - n.state.X
+					dz := tz - n.state.Z
+					d := math.Hypot(dx, dz)
+					if d > 0.001 {
+						n.state.Facing = math.Atan2(dx, dz)
+						n.beamDX = dx / d
+						n.beamDZ = dz / d
+						n.beamFireMS = nowMS + reditelBeamWindupMS
+						n.vx = 0
+						n.vz = 0
+						h.spawnReditelBeamWarning(n.state.ID, n.state.X+n.beamDX*1.0, n.state.Z+n.beamDZ*1.0, n.beamDX, n.beamDZ)
+					}
+				}
+				n.nextBeamMS = nowMS + reditelBeamCDMS + int64(rand.Intn(4000))
+			}
+			if n.beamFireMS == 0 && nowMS >= n.pauseToMS && n.burstEndMS == 0 {
 				n.burstEndMS = nowMS + reditelBurstMS
 				n.nextHitMS = nowMS
 			}
-			if n.burstEndMS > 0 && nowMS >= n.burstEndMS {
+			if n.beamFireMS == 0 && n.burstEndMS > 0 && nowMS >= n.burstEndMS {
 				n.burstEndMS = 0
 				n.pauseToMS = nowMS + reditelPauseMS
 				n.nextHitMS = n.pauseToMS
 			}
-			if n.burstEndMS > 0 && nowMS >= n.nextHitMS {
+			if n.beamFireMS == 0 && n.burstEndMS > 0 && nowMS >= n.nextHitMS {
 				var target *client
 				minD2 := reditelMissileRange * reditelMissileRange
 				for _, c := range h.clients {
@@ -702,7 +766,7 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 					n.aggroID = closestID
 					hasTarget = true
 					if nowMS >= n.nextSayMS {
-						n.state.Say = dogLines[rand.Intn(len(dogLines))]
+						n.state.Say = pickDifferentLine(dogLines, n.state.Say)
 						n.state.SayUntil = nowMS + npcSayMS
 						n.nextSayMS = nowMS + 12000 + int64(rand.Intn(6000))
 					}
@@ -756,7 +820,7 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 						if d2 <= sofieFollowDrop*sofieFollowDrop {
 							following = true
 							if nowMS >= n.nextSayMS {
-								n.state.Say = sofieLines[rand.Intn(len(sofieLines))]
+								n.state.Say = pickDifferentLine(sofieLines, n.state.Say)
 								n.state.SayUntil = nowMS + npcSayMS
 								n.nextSayMS = nowMS + 2200 + int64(rand.Intn(2200))
 							}
@@ -804,7 +868,7 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 						n.aggroID = bestID
 						n.followToMS = nowMS + sofieFollowMS
 						n.pauseToMS = n.followToMS + sofieFollowCDMS
-						n.state.Say = sofieLines[rand.Intn(len(sofieLines))]
+						n.state.Say = pickDifferentLine(sofieLines, n.state.Say)
 						n.state.SayUntil = nowMS + npcSayMS
 						n.nextSayMS = nowMS + 6000 + int64(rand.Intn(5000))
 					}
@@ -818,6 +882,9 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 					n.nextDirMS = nowMS + 1400 + int64(rand.Intn(2600))
 				}
 			}
+		} else if n.state.Kind == "reditel" && n.beamFireMS > nowMS {
+			n.vx = 0
+			n.vz = 0
 		} else if nowMS >= n.nextDirMS {
 			ang := rand.Float64() * math.Pi * 2
 			n.vx = math.Sin(ang) * speed
@@ -866,7 +933,7 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 				}
 			}
 			if near {
-				n.state.Say = namestekLines[rand.Intn(len(namestekLines))]
+				n.state.Say = pickDifferentLine(namestekLines, n.state.Say)
 				n.state.SayUntil = nowMS + npcSayMS
 				n.nextSayMS = nowMS + namestekTalkCDMS + int64(rand.Intn(3000))
 			} else {
@@ -900,6 +967,46 @@ func (h *ArenaHub) spawnNPCProjectile(owner uint64, x, z, dx, dz float64) {
 		DX:    dx,
 		DZ:    dz,
 		Kind:  "reditel",
+		T:     time.Now().UnixMilli(),
+	}})
+}
+
+func (h *ArenaHub) spawnReditelBeam(owner uint64, x, z, dx, dz float64) {
+	id := h.nextNpcPID.Add(1)
+	h.npcProjs[id] = &npcProjectile{
+		ID:    id,
+		Owner: owner,
+		X:     x,
+		Z:     z,
+		DX:    dx,
+		DZ:    dz,
+		Speed: reditelBeamSpeed,
+		Range: reditelBeamRange,
+		Rad:   reditelBeamRad,
+		Dmg:   reditelBeamDmg,
+		Kind:  "reditel_beam",
+	}
+	h.broadcastJSON(sMsg{Type: "fire", Data: sFire{
+		Owner: owner,
+		PID:   id,
+		OX:    x,
+		OZ:    z,
+		DX:    dx,
+		DZ:    dz,
+		Kind:  "reditel_beam",
+		T:     time.Now().UnixMilli(),
+	}})
+}
+
+func (h *ArenaHub) spawnReditelBeamWarning(owner uint64, x, z, dx, dz float64) {
+	h.broadcastJSON(sMsg{Type: "fire", Data: sFire{
+		Owner: owner,
+		PID:   0,
+		OX:    x,
+		OZ:    z,
+		DX:    dx,
+		DZ:    dz,
+		Kind:  "reditel_beam_warn",
 		T:     time.Now().UnixMilli(),
 	}})
 }
@@ -1525,6 +1632,20 @@ func sanitizeName(s string) string {
 		return "player"
 	}
 	return string(out)
+}
+
+func pickDifferentLine(lines []string, last string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	if len(lines) == 1 {
+		return lines[0]
+	}
+	idx := rand.Intn(len(lines))
+	if lines[idx] != last {
+		return lines[idx]
+	}
+	return lines[(idx+1)%len(lines)]
 }
 
 func clamp(v, lo, hi float64) float64 {

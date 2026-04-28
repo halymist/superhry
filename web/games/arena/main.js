@@ -61,7 +61,9 @@ const CAM_PAN_SPEED = 24.0;
 // pickups
 const PICKUP_RADIUS = 0.6;
 const DOG_MAX_HP = 90;
-const REDITEL_MAX_HP = 450;
+const REDITEL_MAX_HP = 720;
+const REDITEL_BEAM_WARN_MS = 700;
+const REDITEL_BEAM_WARN_RANGE = 44.0;
 
 const INTERP_DELAY_MS = 120; // remote interpolation
 const SEND_HZ = 20;
@@ -554,6 +556,7 @@ const players = new Map(); // id -> { mesh, name, hp, alive, snapshots: [{t,x,z,
 const projectiles = []; // {pid, owner, x, z, vx, vz, dist, max, mesh, hitDone}
 const pickups = new Map(); // id -> { kind, x, z, mesh }
 const npcs = new Map(); // id -> { mesh, kind, name, say, sayUntil }
+const beamWarnings = [];
 const projectileTargets = [];
 const projectileDogTargets = [];
 const projectileBlockers = [];
@@ -719,6 +722,10 @@ function onMessage(raw) {
     case 'fire':
       // ignore our own fire echo (we already spawned it locally)
       if (m.data.owner === myId) break;
+      if (m.data.kind === 'reditel_beam_warn') {
+        spawnBeamWarning(m.data);
+        break;
+      }
       spawnProjectile(m.data);
       break;
 
@@ -1117,6 +1124,11 @@ function tryFireR() {
   if (rCastUntil > now) return;
   if (myMana < R_COST) return;
 
+  // R cast roots the player immediately when triggered.
+  hasMoveTarget = false;
+  rightMouseDown = false;
+  myVel.set(0, 0);
+
   rReadyAt = now + R_COOLDOWN_MS;
   rCastUntil = now + R_CAST_MS;
   myMana = Math.max(0, myMana - R_COST);
@@ -1162,6 +1174,8 @@ function projectileSpec(kind, boost = null) {
   switch (kind) {
     case 'reditel':
       return { radius: 0.22, startSpeed: 12.0, maxSpeed: 12.0, accel: 0, range: 10.0, dmg: 9, pierce: true };
+    case 'reditel_beam':
+      return { radius: 0.62, startSpeed: 78.0, maxSpeed: 78.0, accel: 0, range: 44.0, dmg: 50, pierce: true };
     case 'r':
       return { radius: b.rRadius, startSpeed: R_SPEED_START, maxSpeed: R_SPEED_MAX, accel: R_ACCEL, range: R_RANGE, dmg: b.rDmg, pierce: true };
     case 'aa':
@@ -1176,18 +1190,19 @@ function spawnProjectile(p) {
   const spec = projectileSpec(kind, p.boost || null);
   let color;
   if (kind === 'reditel') color = 0xffc46b;
+  else if (kind === 'reditel_beam') color = 0xff6d8a;
   else if (kind === 'r')      color = p.owner === myId ? 0xff7df6 : 0xff5dc8;
   else if (kind === 'aa') color = p.owner === myId ? 0xa6f0ff : 0xfff0a0;
   else                    color = p.owner === myId ? 0xffe48a : 0xff9b66;
 
   const mesh = new THREE.Mesh(
     new THREE.SphereGeometry(spec.radius, 12, 9),
-    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: kind === 'r' ? 1.1 : 0.85 })
+    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: (kind === 'r' || kind === 'reditel_beam') ? 1.1 : 0.85 })
   );
   mesh.position.set(p.ox, 1.0, p.oz);
   scene.add(mesh);
 
-  if (kind === 'r') {
+  if (kind === 'r' || kind === 'reditel_beam') {
     const light = new THREE.PointLight(color, 1.3, 7);
     mesh.add(light);
   }
@@ -1207,6 +1222,37 @@ function spawnProjectile(p) {
     hitDone: false,
     hitSet: new Set(),
   });
+}
+
+function spawnBeamWarning(p) {
+  const sx = p.ox;
+  const sz = p.oz;
+  const ex = sx + p.dx * REDITEL_BEAM_WARN_RANGE;
+  const ez = sz + p.dz * REDITEL_BEAM_WARN_RANGE;
+  const line = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(sx, 0.11, sz),
+      new THREE.Vector3(ex, 0.11, ez),
+    ]),
+    new THREE.LineBasicMaterial({ color: 0xff7f9f, transparent: true, opacity: 0.9 })
+  );
+  scene.add(line);
+  beamWarnings.push({ line, startAt: performance.now(), endAt: performance.now() + REDITEL_BEAM_WARN_MS });
+}
+
+function updateBeamWarnings(now) {
+  for (let i = beamWarnings.length - 1; i >= 0; i--) {
+    const w = beamWarnings[i];
+    if (now >= w.endAt) {
+      scene.remove(w.line);
+      w.line.geometry.dispose();
+      w.line.material.dispose();
+      beamWarnings.splice(i, 1);
+      continue;
+    }
+    const k = (now - w.startAt) / Math.max(1, w.endAt - w.startAt);
+    w.line.material.opacity = 0.95 - 0.55 * k;
+  }
 }
 
 function refreshProjectileCollisionTargets() {
@@ -1594,6 +1640,7 @@ function loop(t) {
   // projectiles
   refreshProjectileCollisionTargets();
   updateProjectiles(dt);
+  updateBeamWarnings(performance.now());
   updatePickups();
   updateNpcTalkVisibility();
 
