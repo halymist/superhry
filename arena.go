@@ -121,11 +121,39 @@ type playerState struct {
 type pickup struct {
 	ID        uint64  `json:"id"`
 	Kind      string  `json:"kind"` // "hp" or "mana" or "gold"
+	Value     int     `json:"value,omitempty"`
 	X         float64 `json:"x"`
 	Z         float64 `json:"z"`
 	SpawnAtMS int64   `json:"spawnAtMs"`
 	ExpireMS  int64   `json:"expireAtMs"`
 }
+
+var (
+	namestekLines = []string{
+		"Nevíte, kde je Martin?",
+		"Je tady Martin",
+		"Martin?",
+		"Pošlete za mnou Martina",
+		"Hledám Martina",
+		"Neviděl někdo Martina?",
+		"Martineee?",
+		"Byl tady Martin?",
+	}
+	dogLines = []string{
+		"Woof woof",
+		"Grrr",
+		"Haf haf",
+		"Vrrr",
+		"Au au",
+	}
+	sofieLines = []string{
+		"Привет!",
+		"Как дела?",
+		"Спасибо!",
+		"Давай, погнали!",
+		"Ну ладно...",
+	}
+)
 
 type npcProjectile struct {
 	ID    uint64
@@ -295,7 +323,6 @@ type ArenaHub struct {
 	fireEvt  chan fireEvent
 	pickEvt  chan pickEvent
 	upgEvt   chan upgradeEvent
-	respawn  chan uint64
 
 	clients    map[uint64]*client
 	nextID     atomic.Uint64
@@ -303,6 +330,7 @@ type ArenaHub struct {
 	nextPickID atomic.Uint64
 	lastPickup time.Time
 	lastTick   time.Time
+	respawnAt  map[uint64]int64
 	npcs       map[uint64]*npcRuntime
 	npcProjs   map[uint64]*npcProjectile
 	nextNpcPID atomic.Uint64
@@ -355,10 +383,10 @@ func NewArenaHub() *ArenaHub {
 		fireEvt:    make(chan fireEvent, 256),
 		pickEvt:    make(chan pickEvent, 256),
 		upgEvt:     make(chan upgradeEvent, 256),
-		respawn:    make(chan uint64, 64),
 		clients:    make(map[uint64]*client),
 		pickups:    make(map[uint64]*pickup),
 		lastTick:   time.Now(),
+		respawnAt:  make(map[uint64]int64),
 		npcs:       make(map[uint64]*npcRuntime),
 		npcProjs:   make(map[uint64]*npcProjectile),
 	}
@@ -433,26 +461,6 @@ func (h *ArenaHub) Run() {
 		case ev := <-h.upgEvt:
 			h.applyUpgrade(ev)
 
-		case id := <-h.respawn:
-			if c, ok := h.clients[id]; ok {
-				c.mu.Lock()
-				if c.state.MaxHP <= 0 {
-					c.state.MaxHP = startHP
-				}
-				if c.state.MaxMana <= 0 {
-					c.state.MaxMana = startMana
-				}
-				c.state.HP = c.state.MaxHP
-				c.state.Mana = c.state.MaxMana
-				c.state.Alive = true
-				c.state.RespawnT = 0
-				c.state.X = (rand.Float64()*2 - 1) * (mapHalfX - 2)
-				c.state.Z = (rand.Float64()*2 - 1) * (mapHalfZ - 2)
-				c.hpAcc = 0
-				c.manaAcc = 0
-				c.mu.Unlock()
-			}
-
 		case <-ticker.C:
 			now := time.Now()
 			dt := now.Sub(h.lastTick).Seconds()
@@ -460,6 +468,7 @@ func (h *ArenaHub) Run() {
 				dt = 1.0 / float64(tickRate)
 			}
 			h.lastTick = now
+			h.processRespawns(now.UnixMilli())
 			h.regen(dt)
 			h.expirePickups(now)
 			h.maybeSpawnPickup(now)
@@ -470,32 +479,41 @@ func (h *ArenaHub) Run() {
 	}
 }
 
+func (h *ArenaHub) processRespawns(nowMS int64) {
+	for id, atMS := range h.respawnAt {
+		if nowMS < atMS {
+			continue
+		}
+		h.respawnPlayer(id)
+		delete(h.respawnAt, id)
+	}
+}
+
+func (h *ArenaHub) respawnPlayer(id uint64) {
+	c, ok := h.clients[id]
+	if !ok {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.state.MaxHP <= 0 {
+		c.state.MaxHP = startHP
+	}
+	if c.state.MaxMana <= 0 {
+		c.state.MaxMana = startMana
+	}
+	c.state.HP = c.state.MaxHP
+	c.state.Mana = c.state.MaxMana
+	c.state.Alive = true
+	c.state.RespawnT = 0
+	c.state.X = (rand.Float64()*2 - 1) * (mapHalfX - 2)
+	c.state.Z = (rand.Float64()*2 - 1) * (mapHalfZ - 2)
+	c.hpAcc = 0
+	c.manaAcc = 0
+}
+
 func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 	nowMS := now.UnixMilli()
-	namestekLines := []string{
-		"Nevíte, kde je Martin?",
-		"Je tady Martin",
-		"Martin?",
-		"Pošlete za mnou Martina",
-		"Hledám Martina",
-		"Neviděl někdo Martina?",
-		"Martineee?",
-		"Byl tady Martin?",
-	}
-	dogLines := []string{
-		"Woof woof",
-		"Grrr",
-		"Haf haf",
-		"Vrrr",
-		"Au au",
-	}
-	sofieLines := []string{
-		"Привет!",
-		"Как дела?",
-		"Спасибо!",
-		"Давай, погнали!",
-		"Ну ладно...",
-	}
 
 	for _, n := range h.npcs {
 		if !n.state.Alive {
@@ -961,6 +979,10 @@ func (h *ArenaHub) maybeSpawnPickup(now time.Time) {
 }
 
 func (h *ArenaHub) spawnPickup(kind string, x, z float64, exact bool, now time.Time) {
+	h.spawnPickupValue(kind, x, z, exact, now, 0)
+}
+
+func (h *ArenaHub) spawnPickupValue(kind string, x, z float64, exact bool, now time.Time, value int) {
 	id := h.nextPickID.Add(1)
 	nowMS := now.UnixMilli()
 	px, pz := x, z
@@ -968,9 +990,13 @@ func (h *ArenaHub) spawnPickup(kind string, x, z float64, exact bool, now time.T
 		px = (rand.Float64()*2 - 1) * (mapHalfX - 2)
 		pz = (rand.Float64()*2 - 1) * (mapHalfZ - 2)
 	}
+	if value <= 0 {
+		value = 1
+	}
 	p := &pickup{
 		ID:        id,
 		Kind:      kind,
+		Value:     value,
 		X:         clamp(px, -mapHalfX+1, mapHalfX-1),
 		Z:         clamp(pz, -mapHalfZ+1, mapHalfZ-1),
 		SpawnAtMS: nowMS,
@@ -1061,7 +1087,11 @@ func (h *ArenaHub) applyPickup(ev pickEvent) {
 			c.state.Mana = maxMana
 		}
 	case "gold":
-		c.state.Gold += goldAmount
+		v := p.Value
+		if v <= 0 {
+			v = goldAmount
+		}
+		c.state.Gold += v
 	}
 }
 
@@ -1174,15 +1204,25 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 	if dmg > maxHP {
 		dmg = maxHP
 	}
+	now := time.Now()
 	target.state.HP -= dmg
 	killed := target.state.HP <= 0
+	dropGold := 0
+	dropX := target.state.X
+	dropZ := target.state.Z
 	if killed {
 		target.state.HP = 0
 		target.state.Alive = false
-		target.state.RespawnT = time.Now().UnixMilli() + respawnMS
+		target.state.RespawnT = now.UnixMilli() + respawnMS
+		dropGold = target.state.Gold
+		target.state.Gold = 0
 	}
 	hp := target.state.HP
 	target.mu.Unlock()
+
+	if killed && dropGold > 0 {
+		h.spawnPickupValue("gold", dropX, dropZ, true, now, dropGold)
+	}
 
 	h.broadcastJSON(sMsg{Type: "hit", Data: sHit{
 		Shooter: ev.shooter, Target: ev.target, PID: ev.pid,
@@ -1190,13 +1230,7 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 	}})
 
 	if killed {
-		id := ev.target
-		time.AfterFunc(respawnMS*time.Millisecond, func() {
-			select {
-			case h.respawn <- id:
-			default:
-			}
-		})
+		h.respawnAt[ev.target] = now.UnixMilli() + respawnMS
 	}
 }
 

@@ -8,14 +8,14 @@ const MOVE_SPEED   = 7.2;   // u/s
 
 // Q skillshot (Mystic Shot)
 const Q_SPEED_START = 19.0;
-const Q_SPEED_MAX   = 19.0;
+const Q_SPEED_MAX   = 21.0;
 const Q_ACCEL       = 0.0;
-const Q_RANGE      = 16.0;
+const Q_RANGE      = 19.0;
 const Q_RADIUS     = 0.24;
 const Q_DAMAGE     = 10;
-const Q_COOLDOWN_MS = 1800;
+const Q_COOLDOWN_MS = 5600;
 const Q_COST       = 35;
-const Q_BURST_MS = 2400;
+const Q_BURST_MS = 1400;
 const Q_BURST_INTERVAL_MS = 130;
 
 // Ranged auto-attack
@@ -36,7 +36,7 @@ const R_RADIUS     = 1.45;
 const R_DAMAGE     = 80;
 const R_COOLDOWN_MS = 2500;
 const R_COST       = 75;
-const R_CAST_MS    = 2000;
+const R_CAST_MS    = 1000;
 
 const PLAYER_RADIUS = 0.6;
 
@@ -117,8 +117,6 @@ const slotE     = document.getElementById('slot-e');
 const slotEMask = document.getElementById('slot-e-mask');
 const slotR     = document.getElementById('slot-r');
 const slotRMask = document.getElementById('slot-r-mask');
-const minimapCanvas = document.getElementById('minimap');
-const minimapCtx = minimapCanvas.getContext('2d');
 const spellbookPanel = document.getElementById('spellbook-panel');
 const respawnIndicator = document.getElementById('respawn-indicator');
 const spellbookRows = Array.from(document.querySelectorAll('#spellbook-panel .sb-row'));
@@ -149,7 +147,7 @@ nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') startWithNam
 // ---------------- three.js setup ----------------
 const canvas = document.getElementById('game-canvas');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 
 const scene = new THREE.Scene();
@@ -542,7 +540,6 @@ let eReadyAt = 0;
 let rReadyAt = 0;
 let aaReadyAt = 0;
 let rCastUntil = 0;
-let teleportMode = false;
 let qMode = false;
 let rMode = false;
 
@@ -867,7 +864,8 @@ window.addEventListener('keydown', e => {
     tryCastW();
   } else if (e.code === 'KeyE') {
     e.preventDefault();
-    tryEnterTeleportMode();
+    updateMouseWorld();
+    tryTeleport();
   } else if (e.code === 'KeyR') {
     e.preventDefault();
     tryEnterRMode();
@@ -886,12 +884,8 @@ slotW.addEventListener('click', () => {
   tryCastW();
 });
 slotE.addEventListener('click', () => {
-  if (teleportMode) {
-    teleportMode = false;
-    slotE.classList.remove('targeting');
-    return;
-  }
-  tryEnterTeleportMode();
+  updateMouseWorld();
+  tryTeleport();
 });
 slotR.addEventListener('click', () => {
   if (rMode) {
@@ -926,9 +920,7 @@ canvas.addEventListener('mousemove', e => {
 });
 canvas.addEventListener('mousedown', e => {
   if (e.button === 0) {
-    if (teleportMode) {
-      tryTeleport();
-    } else if (rMode) {
+    if (rMode) {
       tryFireR();
     } else if (qMode) {
       tryFireQ();
@@ -950,7 +942,6 @@ window.addEventListener('blur', () => {
 canvas.addEventListener('contextmenu', e => {
   e.preventDefault();
 });
-minimapCanvas.addEventListener('contextmenu', e => e.preventDefault());
 document.querySelector('.hp-center-panel')?.addEventListener('contextmenu', e => e.preventDefault());
 document.getElementById('ability-bar')?.addEventListener('contextmenu', e => e.preventDefault());
 spellbookPanel?.addEventListener('contextmenu', e => e.preventDefault());
@@ -984,12 +975,10 @@ function setupSpawn() {
   hasMoveTarget = false;
   myVel.set(0, 0);
   wActiveUntil = 0;
-  teleportMode = false;
   qMode = false;
   rMode = false;
   blink.active = false;
   camReady = false;
-  slotE.classList.remove('targeting');
   slotQ.classList.remove('targeting');
   slotR.classList.remove('targeting');
   centerCameraOnMe();
@@ -1010,10 +999,8 @@ function getCameraAnchorBounds() {
 
 function clearAbilityModes() {
   qMode = false;
-  teleportMode = false;
   rMode = false;
   slotQ.classList.remove('targeting');
-  slotE.classList.remove('targeting');
   slotR.classList.remove('targeting');
 }
 
@@ -1025,7 +1012,6 @@ function tryEnterQMode() {
   if (myMana < Q_COST) return;
   qMode = true;
   slotQ.classList.add('targeting');
-  if (teleportMode) { teleportMode = false; slotE.classList.remove('targeting'); }
   if (rMode)        { rMode = false;        slotR.classList.remove('targeting'); }
 }
 
@@ -1036,7 +1022,6 @@ function tryEnterRMode() {
   if (myMana < R_COST) return;
   rMode = true;
   slotR.classList.add('targeting');
-  if (teleportMode) { teleportMode = false; slotE.classList.remove('targeting'); }
   if (qMode)        { qMode = false;        slotQ.classList.remove('targeting'); }
 }
 
@@ -1052,17 +1037,6 @@ function tryCastW() {
   send({ type: 'cast', data: { kind: 'w' } });
 }
 
-function tryEnterTeleportMode() {
-  const me = players.get(myId);
-  if (!me || !me.alive) return;
-  if (performance.now() < eReadyAt) return;
-  if (myMana < E_COST) return;
-  teleportMode = true;
-  slotE.classList.add('targeting');
-  if (qMode) { qMode = false; slotQ.classList.remove('targeting'); }
-  if (rMode) { rMode = false; slotR.classList.remove('targeting'); }
-}
-
 function tryTeleport() {
   const me = players.get(myId);
   if (!me || !me.alive) return;
@@ -1070,16 +1044,21 @@ function tryTeleport() {
   if (now < eReadyAt) return;
   if (myMana < E_COST) return;
 
-  const dx = mouseWorld.x - myPos.x;
-  const dz = mouseWorld.z - myPos.z;
+  let dx;
+  let dz;
+  if (hasMouse) {
+    dx = mouseWorld.x - myPos.x;
+    dz = mouseWorld.z - myPos.z;
+  } else {
+    dx = Math.sin(myFacing);
+    dz = Math.cos(myFacing);
+  }
   const dist = Math.hypot(dx, dz);
   if (dist < 0.01) return;
 
   const ux = dx / dist, uz = dz / dist;
   const stats = myAbilityStats();
-  const clickLimit = stats.eRange + E_WALL_OVERREACH;
-  if (dist > clickLimit + 0.001) return;
-  const want = Math.min(clickLimit, dist);
+  const want = Math.min(stats.eRange, dist);
   const targetX = myPos.x + ux * want;
   const targetZ = myPos.z + uz * want;
   const spot = findTeleportSpot(targetX, targetZ, Math.max(2.8, PLAYER_RADIUS + 1.9));
@@ -1091,8 +1070,6 @@ function tryTeleport() {
 
   eReadyAt = now + E_COOLDOWN_MS;
   myMana = Math.max(0, myMana - E_COST);
-  teleportMode = false;
-  slotE.classList.remove('targeting');
 
   blink.active = true;
   blink.start = now;
@@ -1395,66 +1372,6 @@ function updatePickups() {
   }
 }
 
-// ---------------- minimap ----------------
-function drawMinimap() {
-  const W = minimapCanvas.width, H = minimapCanvas.height;
-  const ctx = minimapCtx;
-  ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = '#102040';
-  ctx.fillRect(0, 0, W, H);
-  // map -> minimap helpers
-  const sx = (x) => ((x + serverHalfX) / (2 * serverHalfX)) * W;
-  const sz = (z) => ((z + serverHalfZ) / (2 * serverHalfZ)) * H;
-  // obstacles
-  ctx.fillStyle = '#3b5d96';
-  for (const o of obstacles) {
-    const x0 = sx(o.minX), x1 = sx(o.maxX);
-    const z0 = sz(o.minZ), z1 = sz(o.maxZ);
-    ctx.fillRect(x0, z0, Math.max(1, x1 - x0), Math.max(1, z1 - z0));
-  }
-  // pickups
-  for (const pk of pickups.values()) {
-    ctx.fillStyle = pk.kind === 'hp' ? '#ff5d8c' : (pk.kind === 'gold' ? '#ffd45b' : '#56d9ff');
-    ctx.beginPath();
-    ctx.arc(sx(pk.x), sz(pk.z), 2.5, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  // players
-  for (const [id, pl] of players) {
-    if (!pl.alive) continue;
-    const x = sx(pl.mesh.position.x);
-    const z = sz(pl.mesh.position.z);
-    ctx.fillStyle = id === myId ? '#9bf' : '#ffe06b';
-    ctx.beginPath();
-    ctx.arc(x, z, id === myId ? 3.5 : 2.8, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // npcs
-  for (const n of npcs.values()) {
-    if (!n.alive) continue;
-    ctx.fillStyle = n.kind === 'reditel' ? '#ffc38a' : (n.kind === 'pes' ? '#ff9a7d' : '#8af7ff');
-    ctx.beginPath();
-    ctx.arc(sx(n.mesh.position.x), sz(n.mesh.position.z), n.kind === 'reditel' ? 3.5 : 3, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // camera view border on minimap (approximate visible ground window)
-  const viewHalfX = 12;
-  const viewHalfZ = 8;
-  ctx.strokeStyle = 'rgba(214, 242, 255, 0.9)';
-  ctx.lineWidth = 1.25;
-  const vx0 = sx(cameraAnchor.x - viewHalfX);
-  const vx1 = sx(cameraAnchor.x + viewHalfX);
-  const vz0 = sz(cameraAnchor.y - viewHalfZ);
-  const vz1 = sz(cameraAnchor.y + viewHalfZ);
-  ctx.strokeRect(vx0, vz0, Math.max(1, vx1 - vx0), Math.max(1, vz1 - vz0));
-  // border
-  ctx.strokeStyle = '#56d9ff';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
-}
-
 // ---------------- hit display ----------------
 function handleHit(d) {
   // d: { shooter, target, pid, hp, killed, t }
@@ -1516,6 +1433,13 @@ function loop(t) {
       }
     }
 
+    if (rCastUntil > 0 && myVel.lengthSq() > 0.0004) {
+      rCastUntil = 0;
+      rReadyAt = performance.now();
+      const maxMana = (me && me.maxMana) ? me.maxMana : startMana;
+      myMana = Math.min(maxMana, myMana + R_COST);
+    }
+
     const nx = myPos.x + myVel.x * dt;
     const nz = myPos.z + myVel.y * dt;
     const res = resolveMove(myPos.x, myPos.z, nx, nz, PLAYER_RADIUS);
@@ -1549,14 +1473,12 @@ function loop(t) {
     // dead → cancel any pending modes
     qMode = false;
     qBurstUntil = 0;
-    teleportMode = false;
     rMode = false;
     rCastUntil = 0;
     hasMoveTarget = false;
     myVel.set(0, 0);
     sprintTrail.visible = false;
     slotQ.classList.remove('targeting');
-    slotE.classList.remove('targeting');
     slotR.classList.remove('targeting');
   }
 
@@ -1640,7 +1562,7 @@ function loop(t) {
   updateNpcTalkVisibility();
 
   // skillshot / autoattack aim indicator
-  if (alive && hasMouse && !teleportMode) {
+  if (alive && hasMouse) {
     const dx = mouseWorld.x - myPos.x;
     const dz = mouseWorld.z - myPos.z;
     const len = Math.hypot(dx, dz);
@@ -1664,14 +1586,7 @@ function loop(t) {
     aimLine.visible = false;
   }
 
-  teleportRange.visible = teleportMode && alive;
-  if (teleportRange.visible) {
-    const stats = myAbilityStats();
-    teleportRange.position.x = myPos.x;
-    teleportRange.position.z = myPos.z;
-    const s = stats.eRange / E_RANGE;
-    teleportRange.scale.set(s, s, 1);
-  }
+  teleportRange.visible = false;
 
   // camera: free mouse-pan with fixed angle, clamped inside lobby.
   let panX = 0, panZ = 0;
@@ -1758,10 +1673,6 @@ function loop(t) {
     qMode = false;
     slotQ.classList.remove('targeting');
   }
-  if (!canE && teleportMode) {
-    teleportMode = false;
-    slotE.classList.remove('targeting');
-  }
   if (!canR && rMode) {
     rMode = false;
     slotR.classList.remove('targeting');
@@ -1776,7 +1687,7 @@ function loop(t) {
     mpFill.style.width = `${Math.max(0, myMana) / maxMana * 100}%`;
   }
 
-  drawMinimap();
+  // minimap removed for performance
 
   // periodic state send
   if (t - lastSendT > 1000 / SEND_HZ) {
@@ -1791,6 +1702,7 @@ function loop(t) {
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
