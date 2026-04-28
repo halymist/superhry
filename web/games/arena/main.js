@@ -7,14 +7,16 @@ import * as THREE from 'three';
 const MOVE_SPEED   = 7.2;   // u/s
 
 // Q skillshot (Mystic Shot)
-const Q_SPEED_START = 11.0;
-const Q_SPEED_MAX   = 22.0;
-const Q_ACCEL       = 26.0;
-const Q_RANGE      = 24.0;
-const Q_RADIUS     = 0.5;
-const Q_DAMAGE     = 40;
+const Q_SPEED_START = 19.0;
+const Q_SPEED_MAX   = 19.0;
+const Q_ACCEL       = 0.0;
+const Q_RANGE      = 16.0;
+const Q_RADIUS     = 0.24;
+const Q_DAMAGE     = 10;
 const Q_COOLDOWN_MS = 1800;
 const Q_COST       = 35;
+const Q_BURST_MS = 2400;
+const Q_BURST_INTERVAL_MS = 130;
 
 // Ranged auto-attack
 const AA_SPEED_START = 14.0;
@@ -27,13 +29,14 @@ const AA_COOLDOWN_MS = 700;
 
 // R ultimate (Trueshot Barrage)
 const R_SPEED_START = 9.0;
-const R_SPEED_MAX   = 30.0;
+const R_SPEED_MAX   = 36.0;
 const R_ACCEL       = 18.0;
 const R_RANGE      = 60.0;
-const R_RADIUS     = 1.25;
+const R_RADIUS     = 1.45;
 const R_DAMAGE     = 80;
 const R_COOLDOWN_MS = 2500;
 const R_COST       = 75;
+const R_CAST_MS    = 2000;
 
 const PLAYER_RADIUS = 0.6;
 
@@ -57,6 +60,7 @@ const CAM_PAN_SPEED = 24.0;
 
 // pickups
 const PICKUP_RADIUS = 0.6;
+const DOG_MAX_HP = 90;
 
 const INTERP_DELAY_MS = 120; // remote interpolation
 const SEND_HZ = 20;
@@ -70,8 +74,8 @@ function myAbilityStats() {
     qDmg: Q_DAMAGE + myUp.q * 10,
     wDuration: W_DURATION_MS + myUp.w * 1200,
     eRange: E_RANGE + myUp.e * 1.1,
-    rRadius: R_RADIUS + myUp.r * 0.18,
-    rDmg: R_DAMAGE + myUp.r * 18,
+    rRadius: R_RADIUS + myUp.r * 0.32,
+    rDmg: R_DAMAGE + myUp.r * 26,
   };
 }
 
@@ -88,7 +92,7 @@ function refreshSpellbookUi() {
     const kind = btn.dataset.upgrade;
     const lvl = lvlByKind[kind] || 0;
     const cost = upgradeCost(kind, lvl);
-    btn.title = lvl >= UP_MAX ? 'MAX' : `Cost: ${cost} gold`;
+    btn.title = lvl >= UP_MAX ? 'MAX' : `Cena: ${cost} Prémie`;
     btn.disabled = lvl >= UP_MAX || myGold < cost;
   }
   if (goldText) goldText.textContent = String(myGold);
@@ -124,6 +128,8 @@ const upQEl = document.getElementById('u-q');
 const upWEl = document.getElementById('u-w');
 const upEEl = document.getElementById('u-e');
 const upREl = document.getElementById('u-r');
+const rCastWrap = document.getElementById('r-cast-wrap');
+const rCastFill = document.getElementById('r-cast-fill');
 
 const savedName = sessionStorage.getItem('superhry-name') || '';
 nameInput.value = savedName;
@@ -436,6 +442,13 @@ function makeNPCMesh(n) {
   nameSp.position.y = isDog ? 1.65 : 2.45;
   g.add(nameSp);
 
+  if (isDog) {
+    const hpSp = makeHpSprite();
+    hpSp.position.y = 1.95;
+    g.add(hpSp);
+    g.userData.hpSprite = hpSp;
+  }
+
   const talkSp = makeTalkSprite('');
   talkSp.position.y = isDog ? 2.2 : 3.1;
   talkSp.visible = false;
@@ -468,6 +481,10 @@ function updateNPCsFromSnapshot(snap) {
     obj.mesh.scale.setScalar(n.scale || 1);
     obj.mesh.visible = obj.alive;
     setNameSprite(obj.mesh.userData.nameSprite, n.name || n.kind, '#e6f2ff');
+    if (obj.kind === 'pes' && obj.mesh.userData.hpSprite) {
+      setHpSprite(obj.mesh.userData.hpSprite, obj.hp, DOG_MAX_HP);
+      obj.mesh.userData.hpSprite.visible = obj.alive;
+    }
     obj.say = n.say || '';
     obj.sayUntil = n.sayUntil || 0;
     if (obj.say) setTalkSprite(obj.mesh.userData.talkSprite, obj.say);
@@ -518,10 +535,13 @@ const npcs = new Map(); // id -> { mesh, kind, name, say, sayUntil }
 
 let myProjectileSeq = 1;
 let qReadyAt = 0;
+let qBurstUntil = 0;
+let qBurstNextShotAt = 0;
 let wActiveUntil = 0;
 let eReadyAt = 0;
 let rReadyAt = 0;
 let aaReadyAt = 0;
+let rCastUntil = 0;
 let teleportMode = false;
 let qMode = false;
 let rMode = false;
@@ -582,30 +602,17 @@ function isTeleportBlocked(x, z) {
   return false;
 }
 
-function findTeleportSpot(targetX, targetZ, ux, uz, maxBack) {
+function findTeleportSpot(targetX, targetZ, maxSearchRadius = 2.8) {
   const primary = clampToMap(targetX, targetZ);
   if (!isTeleportBlocked(primary.x, primary.z)) return primary;
 
-  const px = -uz;
-  const pz = ux;
-  // Prefer close side-steps near intended landing, avoid big fallback to origin.
-  for (const side of [0.35, 0.7, 1.05, 1.4]) {
-    const a = clampToMap(targetX + px * side, targetZ + pz * side);
-    if (!isTeleportBlocked(a.x, a.z)) return a;
-    const b = clampToMap(targetX - px * side, targetZ - pz * side);
-    if (!isTeleportBlocked(b.x, b.z)) return b;
-  }
-
-  const backLimit = Math.min(maxBack, 2.2);
-  for (let back = 0.28; back <= backLimit + 0.001; back += 0.28) {
-    const base = clampToMap(targetX - ux * back, targetZ - uz * back);
-    if (!isTeleportBlocked(base.x, base.z)) return base;
-
-    for (const side of [0.35, 0.7, 1.05]) {
-      const a = clampToMap(base.x + px * side, base.z + pz * side);
-      if (!isTeleportBlocked(a.x, a.z)) return a;
-      const b = clampToMap(base.x - px * side, base.z - pz * side);
-      if (!isTeleportBlocked(b.x, b.z)) return b;
+  const step = 0.2;
+  const samples = 24;
+  for (let r = step; r <= maxSearchRadius + 0.001; r += step) {
+    for (let i = 0; i < samples; i++) {
+      const a = (i / samples) * Math.PI * 2;
+      const cand = clampToMap(targetX + Math.cos(a) * r, targetZ + Math.sin(a) * r);
+      if (!isTeleportBlocked(cand.x, cand.z)) return cand;
     }
   }
   return null;
@@ -643,6 +650,7 @@ const camDesiredPos = new THREE.Vector3();
 const camDesiredLook = new THREE.Vector3();
 const cameraAnchor = new THREE.Vector2(0, 0);
 let camReady = false;
+let camRecenterBoostUntil = 0;
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -750,7 +758,7 @@ function handleSnapshot(snap) {
       if (pl._initSync !== true || (!wasAlive && p.alive) || desync > 2.5) {
         myPos.x = p.x; myPos.z = p.z;
         myVel.set(0, 0);
-        centerCameraOnMe();
+        centerCameraOnMe(true);
         pl._initSync = true;
       }
     }
@@ -853,7 +861,7 @@ window.addEventListener('keydown', e => {
   if (nameModal.style.display !== 'none') return;
   if (e.code === 'KeyQ') {
     e.preventDefault();
-    tryEnterQMode();
+    tryFireQ();
   } else if (e.code === 'KeyW') {
     e.preventDefault();
     tryCastW();
@@ -872,12 +880,7 @@ window.addEventListener('keydown', e => {
 });
 
 slotQ.addEventListener('click', () => {
-  if (qMode) {
-    qMode = false;
-    slotQ.classList.remove('targeting');
-    return;
-  }
-  tryEnterQMode();
+  tryFireQ();
 });
 slotW.addEventListener('click', () => {
   tryCastW();
@@ -951,6 +954,7 @@ minimapCanvas.addEventListener('contextmenu', e => e.preventDefault());
 document.querySelector('.hp-center-panel')?.addEventListener('contextmenu', e => e.preventDefault());
 document.getElementById('ability-bar')?.addEventListener('contextmenu', e => e.preventDefault());
 spellbookPanel?.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('contextmenu', e => e.preventDefault());
 
 const raycaster = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -991,11 +995,12 @@ function setupSpawn() {
   centerCameraOnMe();
 }
 
-function centerCameraOnMe() {
+function centerCameraOnMe(snap = false) {
   const b = getCameraAnchorBounds();
   cameraAnchor.x = Math.max(b.minX, Math.min(b.maxX, myPos.x));
   cameraAnchor.y = Math.max(b.minZ, Math.min(b.maxZ, myPos.z));
-  camReady = false;
+  if (snap) camReady = false;
+  else camRecenterBoostUntil = performance.now() + 320;
 }
 
 function getCameraAnchorBounds() {
@@ -1015,6 +1020,7 @@ function clearAbilityModes() {
 function tryEnterQMode() {
   const me = players.get(myId);
   if (!me || !me.alive) return;
+  if (performance.now() < qBurstUntil) return;
   if (performance.now() < qReadyAt) return;
   if (myMana < Q_COST) return;
   qMode = true;
@@ -1076,7 +1082,7 @@ function tryTeleport() {
   const want = Math.min(clickLimit, dist);
   const targetX = myPos.x + ux * want;
   const targetZ = myPos.z + uz * want;
-  const spot = findTeleportSpot(targetX, targetZ, ux, uz, want);
+  const spot = findTeleportSpot(targetX, targetZ, Math.max(2.8, PLAYER_RADIUS + 1.9));
   if (!spot) return;
 
   myPos.x = spot.x;
@@ -1100,13 +1106,16 @@ function tryFireQ() {
   const me = players.get(myId);
   if (!me || !me.alive) return;
   const now = performance.now();
+  if (now < qBurstUntil) return;
   if (now < qReadyAt) return;
   if (myMana < Q_COST) return;
   qReadyAt = now + Q_COOLDOWN_MS;
   myMana = Math.max(0, myMana - Q_COST);
   qMode = false;
   slotQ.classList.remove('targeting');
-  fireProjectile('q');
+  qBurstUntil = now + Q_BURST_MS;
+  qBurstNextShotAt = now;
+  send({ type: 'cast', data: { kind: 'q' } });
 }
 
 function tryFireR() {
@@ -1114,12 +1123,14 @@ function tryFireR() {
   if (!me || !me.alive) return;
   const now = performance.now();
   if (now < rReadyAt) return;
+  if (rCastUntil > now) return;
   if (myMana < R_COST) return;
+
   rReadyAt = now + R_COOLDOWN_MS;
+  rCastUntil = now + R_CAST_MS;
   myMana = Math.max(0, myMana - R_COST);
   rMode = false;
   slotR.classList.remove('targeting');
-  fireProjectile('r');
 }
 
 function tryAutoAttack() {
@@ -1131,14 +1142,21 @@ function tryAutoAttack() {
   fireProjectile('aa');
 }
 
-function fireProjectile(kind) {
-  let dx = mouseWorld.x - myPos.x;
-  let dz = mouseWorld.z - myPos.z;
-  const len = Math.hypot(dx, dz);
-  if (len < 0.001) {
-    dx = Math.sin(myFacing); dz = Math.cos(myFacing);
+function fireProjectile(kind, dir = null) {
+  let dx;
+  let dz;
+  if (dir) {
+    dx = dir.x;
+    dz = dir.y;
   } else {
-    dx /= len; dz /= len;
+    dx = mouseWorld.x - myPos.x;
+    dz = mouseWorld.z - myPos.z;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.001) {
+      dx = Math.sin(myFacing); dz = Math.cos(myFacing);
+    } else {
+      dx /= len; dz /= len;
+    }
   }
   const pid = myProjectileSeq++;
   const ox = myPos.x + dx * (PLAYER_RADIUS + 0.3);
@@ -1530,14 +1548,28 @@ function loop(t) {
   } else {
     // dead → cancel any pending modes
     qMode = false;
+    qBurstUntil = 0;
     teleportMode = false;
     rMode = false;
+    rCastUntil = 0;
     hasMoveTarget = false;
     myVel.set(0, 0);
     sprintTrail.visible = false;
     slotQ.classList.remove('targeting');
     slotE.classList.remove('targeting');
     slotR.classList.remove('targeting');
+  }
+
+  if (alive) {
+    const nowQ = performance.now();
+    while (nowQ < qBurstUntil && nowQ >= qBurstNextShotAt) {
+      fireProjectile('q');
+      qBurstNextShotAt += Q_BURST_INTERVAL_MS;
+    }
+    if (rCastUntil > 0 && nowQ >= rCastUntil) {
+      fireProjectile('r');
+      rCastUntil = 0;
+    }
   }
 
   // place my mesh + apply blink scale animation
@@ -1673,7 +1705,8 @@ function loop(t) {
     camLook.set(desiredLookX, desiredLookY, desiredLookZ);
     camReady = true;
   } else {
-    const camAlpha = 1 - Math.exp(-8 * dt);
+    const camLerpRate = performance.now() < camRecenterBoostUntil ? 18 : 8;
+    const camAlpha = 1 - Math.exp(-camLerpRate * dt);
     camDesiredPos.set(desiredPosX, desiredPosY, desiredPosZ);
     camDesiredLook.set(desiredLookX, desiredLookY, desiredLookZ);
     camPos.lerp(camDesiredPos, camAlpha);
@@ -1700,6 +1733,17 @@ function loop(t) {
   slotEMask.style.transform = `scaleY(${Math.max(0, Math.min(1, eRemain / E_COOLDOWN_MS))})`;
   const rRemain = Math.max(0, rReadyAt - now);
   slotRMask.style.transform = `scaleY(${Math.max(0, Math.min(1, rRemain / R_COOLDOWN_MS))})`;
+  const rCastRemain = Math.max(0, rCastUntil - now);
+  if (rCastWrap && rCastFill) {
+    if (alive && rCastRemain > 0) {
+      rCastWrap.hidden = false;
+      const k = 1 - Math.max(0, Math.min(1, rCastRemain / R_CAST_MS));
+      rCastFill.style.width = `${Math.round(k * 100)}%`;
+    } else {
+      rCastWrap.hidden = true;
+      rCastFill.style.width = '0%';
+    }
+  }
 
   // Grey out abilities if mana is insufficient.
   const canQ = alive && myMana >= Q_COST;

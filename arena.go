@@ -34,20 +34,29 @@ const (
 	hpRegenPerSec   = 2.0
 	manaRegenPerSec = 8.0
 
-	pickupSpawnMS = 9000
-	maxPickups    = 3
-	pickupAmount  = 20
-	goldAmount    = 1
-	pickupRadius  = 1.2 // pickup-collection distance
-	pickupLifeMS  = 30000
-	npcSayMS      = 7000
-	npcRespawnMS  = 5000
-	dogHP         = 90
-	dogAggroRange = 11.0
-	dogDeaggroRng = 16.0
-	dogTouchRange = 1.15
-	dogTouchDmg   = 14
-	dogHitCDMS    = 900
+	pickupSpawnMS     = 9000
+	maxPickups        = 3
+	pickupAmount      = 20
+	goldAmount        = 1
+	pickupRadius      = 1.2 // pickup-collection distance
+	pickupLifeMS      = 30000
+	npcSayMS          = 7000
+	npcRespawnMS      = 5000
+	dogHP             = 90
+	dogAggroRange     = 11.0
+	dogDeaggroRng     = 16.0
+	dogTouchRange     = 1.15
+	dogTouchDmg       = 14
+	dogHitCDMS        = 900
+	dogChaseSpeed     = 4.0
+	dogWanderSpeed    = 2.1
+	sofieFollowRange  = 10.0
+	sofieFollowDrop   = 16.0
+	sofieFollowSpeed  = 1.85
+	sofieFollowMS     = 5000
+	sofieFollowCDMS   = 7000
+	namestekLootRange = 6.0
+	namestekLootSpeed = 1.55
 
 	reditelMissileSpeed = 12.0
 	reditelMissileRange = 10.0
@@ -55,7 +64,7 @@ const (
 	reditelMissileDmg   = 9
 	reditelShotCDMS     = 140
 	reditelBurstMS      = 3000
-	reditelPauseMS      = 900
+	reditelPauseMS      = 1700
 	reditelGoldDropMS   = 12000
 
 	playerRadius = 0.6
@@ -158,6 +167,7 @@ type npcRuntime struct {
 	nextDropMS int64
 	burstEndMS int64
 	pauseToMS  int64
+	followToMS int64
 	aggroID    uint64
 }
 
@@ -357,20 +367,26 @@ func NewArenaHub() *ArenaHub {
 func (h *ArenaHub) initNPCs() {
 	now := time.Now().UnixMilli()
 	h.npcs[1001] = &npcRuntime{
-		state:     npcState{ID: 1001, Kind: "namestek", Name: "namestek", X: -6, Z: 4, Facing: 0, Scale: 1.0, Alive: true},
+		state:     npcState{ID: 1001, Kind: "namestek", Name: "Náměstek", X: -6, Z: 4, Facing: 0, Scale: 1.0, Alive: true},
 		nextDirMS: now + 1200,
 		nextSayMS: now + 3000,
 	}
 	h.npcs[1002] = &npcRuntime{
-		state:      npcState{ID: 1002, Kind: "reditel", Name: "ředitel", X: 10, Z: -8, Facing: 0, Scale: 1.0, Alive: true},
+		state:      npcState{ID: 1002, Kind: "reditel", Name: "Ředitel", X: 10, Z: -8, Facing: 0, Scale: 1.0, Alive: true},
 		nextDirMS:  now + 900,
 		nextSayMS:  now + 1000000,
 		nextDropMS: now + reditelGoldDropMS,
 	}
 	h.npcs[1003] = &npcRuntime{
-		state:     npcState{ID: 1003, Kind: "pes", Name: "pes", X: 2, Z: 2, Facing: 0, Scale: 1.0, HP: dogHP, Alive: true},
+		state:     npcState{ID: 1003, Kind: "pes", Name: "Pes", X: 2, Z: 2, Facing: 0, Scale: 1.0, HP: dogHP, Alive: true},
 		nextDirMS: now + 1000,
 		nextSayMS: now + 2600,
+	}
+	h.npcs[1004] = &npcRuntime{
+		state:     npcState{ID: 1004, Kind: "sofie", Name: "Sofie", X: -12, Z: -4, Facing: 0, Scale: 1.0, Alive: true},
+		nextDirMS: now + 1500,
+		nextSayMS: now + 3500,
+		pauseToMS: now + 1200,
 	}
 }
 
@@ -473,6 +489,13 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 		"Vrrr",
 		"Au au",
 	}
+	sofieLines := []string{
+		"Privet!",
+		"Kak dela?",
+		"Spasibo!",
+		"Davai, pognali!",
+		"Nu ladno...",
+	}
 
 	for _, n := range h.npcs {
 		if !n.state.Alive {
@@ -498,7 +521,39 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 			speed = 0.9
 		}
 		if n.state.Kind == "pes" {
-			speed = 1.45
+			speed = dogWanderSpeed
+		}
+
+		if n.state.Kind == "namestek" {
+			var best *pickup
+			bestD2 := namestekLootRange * namestekLootRange
+			for _, p := range h.pickups {
+				if p.Kind != "hp" && p.Kind != "mana" && p.Kind != "gold" {
+					continue
+				}
+				dx := p.X - n.state.X
+				dz := p.Z - n.state.Z
+				d2 := dx*dx + dz*dz
+				if d2 <= bestD2 {
+					bestD2 = d2
+					best = p
+				}
+			}
+			if best != nil {
+				dx := best.X - n.state.X
+				dz := best.Z - n.state.Z
+				d := math.Hypot(dx, dz)
+				if d <= pickupRadius+0.35 {
+					delete(h.pickups, best.ID)
+					n.vx = 0
+					n.vz = 0
+				} else if d > 0.001 {
+					n.vx = dx / d * namestekLootSpeed
+					n.vz = dz / d * namestekLootSpeed
+					n.state.Facing = math.Atan2(n.vx, n.vz)
+					n.nextDirMS = nowMS + 350
+				}
+			}
 		}
 
 		if n.state.Kind == "reditel" {
@@ -620,8 +675,8 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 						dz := tz - n.state.Z
 						d := math.Hypot(dx, dz)
 						if d > 0.001 {
-							n.vx = dx / d * 2.8
-							n.vz = dz / d * 2.8
+							n.vx = dx / d * dogChaseSpeed
+							n.vz = dz / d * dogChaseSpeed
 							n.state.Facing = math.Atan2(n.vx, n.vz)
 						}
 						if d <= dogTouchRange && nowMS >= n.nextHitMS {
@@ -636,6 +691,77 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 				n.vz = math.Cos(ang) * speed
 				n.state.Facing = math.Atan2(n.vx, n.vz)
 				n.nextDirMS = nowMS + 1400 + int64(rand.Intn(2600))
+			}
+		} else if n.state.Kind == "sofie" {
+			following := false
+			if n.aggroID != 0 && nowMS < n.followToMS {
+				if tc, ok := h.clients[n.aggroID]; ok {
+					tc.mu.Lock()
+					tAlive := tc.state.Alive
+					tx := tc.state.X
+					tz := tc.state.Z
+					tc.mu.Unlock()
+					if tAlive {
+						dx := tx - n.state.X
+						dz := tz - n.state.Z
+						d2 := dx*dx + dz*dz
+						if d2 <= sofieFollowDrop*sofieFollowDrop {
+							following = true
+							d := math.Sqrt(d2)
+							if d > 1.35 {
+								n.vx = dx / d * sofieFollowSpeed
+								n.vz = dz / d * sofieFollowSpeed
+								n.state.Facing = math.Atan2(n.vx, n.vz)
+							} else {
+								n.vx = 0
+								n.vz = 0
+							}
+						}
+					}
+				}
+			}
+
+			if !following {
+				n.aggroID = 0
+				n.followToMS = 0
+				if nowMS >= n.pauseToMS {
+					bestID := uint64(0)
+					bestD2 := sofieFollowRange * sofieFollowRange
+					for _, c := range h.clients {
+						c.mu.Lock()
+						alive := c.state.Alive
+						px := c.state.X
+						pz := c.state.Z
+						pid := c.id
+						c.mu.Unlock()
+						if !alive {
+							continue
+						}
+						dx := px - n.state.X
+						dz := pz - n.state.Z
+						d2 := dx*dx + dz*dz
+						if d2 <= bestD2 {
+							bestD2 = d2
+							bestID = pid
+						}
+					}
+					if bestID != 0 {
+						n.aggroID = bestID
+						n.followToMS = nowMS + sofieFollowMS
+						n.pauseToMS = n.followToMS + sofieFollowCDMS
+						n.state.Say = sofieLines[rand.Intn(len(sofieLines))]
+						n.state.SayUntil = nowMS + npcSayMS
+						n.nextSayMS = nowMS + 6000 + int64(rand.Intn(5000))
+					}
+				}
+
+				if n.aggroID == 0 && nowMS >= n.nextDirMS {
+					ang := rand.Float64() * math.Pi * 2
+					n.vx = math.Sin(ang) * speed
+					n.vz = math.Cos(ang) * speed
+					n.state.Facing = math.Atan2(n.vx, n.vz)
+					n.nextDirMS = nowMS + 1400 + int64(rand.Intn(2600))
+				}
 			}
 		} else if nowMS >= n.nextDirMS {
 			ang := rand.Float64() * math.Pi * 2
@@ -687,6 +813,12 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 			} else {
 				n.nextSayMS = nowMS + 2500
 			}
+		}
+
+		if n.state.Kind == "sofie" && nowMS >= n.nextSayMS {
+			n.state.Say = sofieLines[rand.Intn(len(sofieLines))]
+			n.state.SayUntil = nowMS + npcSayMS
+			n.nextSayMS = nowMS + 7000 + int64(rand.Intn(6000))
 		}
 
 	}
@@ -817,12 +949,12 @@ func (h *ArenaHub) maybeSpawnPickup(now time.Time) {
 		return
 	}
 	h.lastPickup = now
-	kindRoll := rand.Intn(4)
-	kind := "hp"
-	if kindRoll == 1 {
+	kindRoll := rand.Intn(10)
+	kind := "gold"
+	if kindRoll == 0 {
+		kind = "hp"
+	} else if kindRoll <= 4 {
 		kind = "mana"
-	} else if kindRoll == 2 || kindRoll == 3 {
-		kind = "gold"
 	}
 	h.spawnPickup(kind, 0, 0, false, now)
 }
@@ -869,6 +1001,9 @@ func (h *ArenaHub) applyFire(ev fireEvent) {
 		return
 	}
 	cost := manaCost(ev.kind)
+	if ev.kind == "q" {
+		cost = 0
+	}
 	c.mu.Lock()
 	if !c.state.Alive || c.state.Mana < cost {
 		c.mu.Unlock()

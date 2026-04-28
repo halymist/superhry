@@ -15,6 +15,7 @@ html, body {
   margin: 0;
   padding: 0;
   height: 100%;
+  overflow: hidden;
   background: var(--bg);
   color: var(--fg);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -100,6 +101,8 @@ html, body {
 .game-root {
   position: fixed;
   inset: 0;
+  width: 100vw;
+  height: 100vh;
   background: radial-gradient(circle at 50% 20%, #1a2f5a 0%, #111a31 45%, #0b1122 100%);
   overflow: hidden;
 }
@@ -117,6 +120,10 @@ html, body {
   pointer-events: none;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--fg);
+}
+
+.hud [hidden] {
+  display: none !important;
 }
 
 .hud .respawn-indicator {
@@ -163,6 +170,34 @@ html, body {
   border-radius: 8px;
   padding: 8px 12px 10px;
   pointer-events: auto;
+}
+
+.hud .cast-bar-wrap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -22px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.hud .cast-bar-track {
+  position: relative;
+  width: 72%;
+  height: 14px;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid #b985ff;
+  background: rgba(23, 15, 39, 0.86);
+  box-shadow: 0 0 14px rgba(185, 133, 255, 0.34);
+}
+
+.hud .cast-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #d294ff, #ff89c9);
+  transition: width 70ms linear;
 }
 
 .hud .buff-indicator {
