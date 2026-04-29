@@ -386,10 +386,20 @@ html, body {
   color: #cce6ff;
 }
 
-.hud .spellbook-panel .sb-spells {
+.hud .spellbook-panel .sb-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 6px;
+}
+
+.hud .spellbook-panel .sb-up-hp {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.hud .spellbook-panel .sb-up-mana {
+  grid-column: 1;
+  grid-row: 2;
 }
 
 .hud .spellbook-panel .sb-spell {

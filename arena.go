@@ -85,12 +85,17 @@ const (
 
 	V_COST = 55
 	X_COST = 45
+	Z_COST = 50
 
 	vBaseRadius = 5.7
 	vRadStep    = 0.22
 
 	xStunBaseMS = 2000
 	xStunStepMS = 200
+
+	sofieTouchRange = 1.35
+	sofieHealHPPS   = 14.0
+	sofieHealManaPS = 18.0
 
 	playerRadius = 0.6
 
@@ -116,6 +121,8 @@ func manaCost(kind string) int {
 		return V_COST
 	case "x":
 		return X_COST
+	case "z":
+		return Z_COST
 	}
 	return 0
 }
@@ -149,6 +156,7 @@ type playerState struct {
 	UpC       int     `json:"upC"`
 	UpV       int     `json:"upV"`
 	UpX       int     `json:"upX"`
+	UpZ       int     `json:"upZ"`
 	Alive     bool    `json:"alive"`
 	StunUntil int64   `json:"stunUntil,omitempty"`
 	RespawnT  int64   `json:"respawnAt,omitempty"` // unix ms; 0 if alive
@@ -241,6 +249,8 @@ type npcRuntime struct {
 	followToMS  int64
 	aggroID     uint64
 	stunUntilMS int64
+	allyHPAcc   float64
+	allyManaAcc float64
 }
 
 // --- inbound client messages ---
@@ -284,7 +294,7 @@ type cPickup struct {
 }
 
 type cUpgrade struct {
-	Kind string `json:"kind"` // "hp","mana","q","w","e","r","c","v","x"
+	Kind string `json:"kind"` // "hp","mana","q","w","e","r","c","v","x","z"
 }
 
 // --- outbound server messages ---
@@ -940,7 +950,6 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 					tAlive := tc.state.Alive
 					tx := tc.state.X
 					tz := tc.state.Z
-					tc.mu.Unlock()
 					if tAlive {
 						dx := tx - n.state.X
 						dz := tz - n.state.Z
@@ -953,20 +962,47 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 								n.nextSayMS = nowMS + 2200 + int64(rand.Intn(2200))
 							}
 							d := math.Sqrt(d2)
-							if d > 1.35 {
+							if d > sofieTouchRange {
 								n.vx = dx / d * sofieFollowSpeed
 								n.vz = dz / d * sofieFollowSpeed
 								n.state.Facing = math.Atan2(n.vx, n.vz)
+								n.allyHPAcc = 0
+								n.allyManaAcc = 0
 							} else {
 								n.vx = 0
 								n.vz = 0
+								n.allyHPAcc += sofieHealHPPS * dt
+								n.allyManaAcc += sofieHealManaPS * dt
+								if n.allyHPAcc >= 1 {
+									add := int(n.allyHPAcc)
+									n.allyHPAcc -= float64(add)
+									if tc.state.HP < tc.state.MaxHP {
+										tc.state.HP += add
+										if tc.state.HP > tc.state.MaxHP {
+											tc.state.HP = tc.state.MaxHP
+										}
+									}
+								}
+								if n.allyManaAcc >= 1 {
+									add := int(n.allyManaAcc)
+									n.allyManaAcc -= float64(add)
+									if tc.state.Mana < tc.state.MaxMana {
+										tc.state.Mana += add
+										if tc.state.Mana > tc.state.MaxMana {
+											tc.state.Mana = tc.state.MaxMana
+										}
+									}
+								}
 							}
 						}
 					}
+					tc.mu.Unlock()
 				}
 			}
 
 			if !following {
+				n.allyHPAcc = 0
+				n.allyManaAcc = 0
 				n.aggroID = 0
 				n.followToMS = 0
 				n.state.Say = ""
@@ -1317,13 +1353,17 @@ func (h *ArenaHub) applyCast(ev castEvent) {
 		c.mu.Unlock()
 		return
 	}
+	if ev.kind == "z" && c.state.UpZ <= 0 {
+		c.mu.Unlock()
+		return
+	}
 	if c.state.Mana < cost {
 		c.mu.Unlock()
 		return
 	}
 	c.state.Mana -= cost
 
-	if ev.kind != "c" && ev.kind != "v" && ev.kind != "x" {
+	if ev.kind != "c" && ev.kind != "v" && ev.kind != "x" && ev.kind != "z" {
 		c.mu.Unlock()
 		return
 	}
@@ -1338,13 +1378,13 @@ func (h *ArenaHub) applyCast(ev castEvent) {
 	dz := math.Cos(facing)
 	c.mu.Unlock()
 
-	if ev.kind == "x" {
+	if ev.kind == "x" || ev.kind == "z" {
 		return
 	}
 
 	if ev.kind == "v" {
 		radius := vBaseRadius + float64(upV)*vRadStep
-		dmg := 6 + upV*4
+		dmg := 8 + upV*5
 		nowMS := time.Now().UnixMilli()
 		h.auras[owner] = &playerAura{
 			Owner:    owner,
@@ -1410,6 +1450,14 @@ func (h *ArenaHub) applyFire(ev fireEvent) {
 		cost = 0
 	}
 	c.mu.Lock()
+	if ev.kind == "x" && c.state.UpX <= 0 {
+		c.mu.Unlock()
+		return
+	}
+	if ev.kind == "z" && c.state.UpZ <= 0 {
+		c.mu.Unlock()
+		return
+	}
 	if !c.state.Alive || c.state.Mana < cost {
 		c.mu.Unlock()
 		return
@@ -1507,6 +1555,8 @@ func (h *ArenaHub) applyUpgrade(ev upgradeEvent) {
 		curLvl = c.state.UpV
 	case "x":
 		curLvl = c.state.UpX
+	case "z":
+		curLvl = c.state.UpZ
 	default:
 		return
 	}
@@ -1548,6 +1598,8 @@ func (h *ArenaHub) applyUpgrade(ev upgradeEvent) {
 		c.state.UpV++
 	case "x":
 		c.state.UpX++
+	case "z":
+		c.state.UpZ++
 	}
 }
 

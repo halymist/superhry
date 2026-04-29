@@ -24,7 +24,7 @@ const AA_SPEED_MAX   = 24.0;
 const AA_ACCEL       = 28.0;
 const AA_RANGE     = 17.0;
 const AA_RADIUS    = 0.28;
-const AA_DAMAGE    = 12;
+const AA_DAMAGE    = 24;
 const AA_COOLDOWN_MS = 700;
 
 // R ultimate (Trueshot Barrage)
@@ -81,6 +81,17 @@ const X_RANGE = 22.0;
 const X_RADIUS = 0.72;
 const X_DAMAGE = 12;
 
+const Z_COOLDOWN_MS = 7800;
+const Z_COST = 50;
+const Z_DELAY_MS = 700;
+const Z_LINGER_MS = 1000;
+const Z_TICK_MS = 250;
+const Z_LINGER_DAMAGE_FACTOR = 0.35;
+const Z_BASE_RADIUS = 1.55;
+const Z_RADIUS_STEP = 0.22;
+const Z_BASE_DAMAGE = 18;
+const Z_DAMAGE_STEP = 9;
+
 const SPELL_DEFS = {
   q: { id: 'q', name: 'Salva' },
   w: { id: 'w', name: 'Sprint' },
@@ -89,6 +100,7 @@ const SPELL_DEFS = {
   c: { id: 'c', name: 'Naraz' },
   v: { id: 'v', name: 'Pole' },
   x: { id: 'x', name: 'Omraceni' },
+  z: { id: 'z', name: 'Dopad' },
 };
 
 // pickups
@@ -131,8 +143,9 @@ function refreshSpellbookUi() {
   upCEl.textContent = `${myUp.c}/${SPELL_UP_MAX}`;
   upVEl.textContent = `${myUp.v}/${SPELL_UP_MAX}`;
   upXEl.textContent = `${myUp.x}/${SPELL_UP_MAX}`;
-  const lvlByKind = { hp: myUp.hp, mana: myUp.mana, q: myUp.q, w: myUp.w, e: myUp.e, r: myUp.r, c: myUp.c, v: myUp.v, x: myUp.x };
-  const capByKind = { hp: HP_MANA_UP_MAX, mana: HP_MANA_UP_MAX, q: SPELL_UP_MAX, w: SPELL_UP_MAX, e: SPELL_UP_MAX, r: SPELL_UP_MAX, c: SPELL_UP_MAX, v: SPELL_UP_MAX, x: SPELL_UP_MAX };
+  upZEl.textContent = `${myUp.z}/${SPELL_UP_MAX}`;
+  const lvlByKind = { hp: myUp.hp, mana: myUp.mana, q: myUp.q, w: myUp.w, e: myUp.e, r: myUp.r, c: myUp.c, v: myUp.v, x: myUp.x, z: myUp.z };
+  const capByKind = { hp: HP_MANA_UP_MAX, mana: HP_MANA_UP_MAX, q: SPELL_UP_MAX, w: SPELL_UP_MAX, e: SPELL_UP_MAX, r: SPELL_UP_MAX, c: SPELL_UP_MAX, v: SPELL_UP_MAX, x: SPELL_UP_MAX, z: SPELL_UP_MAX };
   for (const inline of spellbookUpgradeInline) {
     const kind = inline.dataset.upgrade;
     const lvl = lvlByKind[kind] || 0;
@@ -144,8 +157,10 @@ function refreshSpellbookUi() {
 
   for (const card of spellCards) {
     const kind = card.dataset.spell;
+    if (!kind) continue;
     const lvl = lvlByKind[kind] || 0;
     card.classList.toggle('locked', lvl <= 0);
+    card.title = '';
   }
 
   renderEquippedSlots();
@@ -154,6 +169,24 @@ function refreshSpellbookUi() {
 
 function poolRadiusForLevel(level) {
   return V_BASE_RADIUS + Math.max(0, level) * V_RADIUS_STEP;
+}
+
+function zRadiusForLevel(level) {
+  return Z_BASE_RADIUS + Math.max(0, level) * Z_RADIUS_STEP;
+}
+
+function zDamageForLevel(level) {
+  return Z_BASE_DAMAGE + Math.max(0, level) * Z_DAMAGE_STEP;
+}
+
+function spellRadiusForLevel(kind, level) {
+  if (kind === 'q') return Q_RADIUS;
+  if (kind === 'r') return R_RADIUS + Math.max(0, level) * 0.32;
+  if (kind === 'c') return 1.2;
+  if (kind === 'v') return poolRadiusForLevel(level);
+  if (kind === 'x') return X_RADIUS;
+  if (kind === 'z') return zRadiusForLevel(level);
+  return null;
 }
 
 function tryCastPool() {
@@ -205,6 +238,7 @@ const upREl = document.getElementById('u-r');
 const upCEl = document.getElementById('u-c');
 const upVEl = document.getElementById('u-v');
 const upXEl = document.getElementById('u-x');
+const upZEl = document.getElementById('u-z');
 const rCastWrap = document.getElementById('r-cast-wrap');
 const rCastFill = document.getElementById('r-cast-fill');
 
@@ -677,7 +711,7 @@ let startHP = 100;
 let startMana = 100;
 let myMana = 100; // optimistic local prediction; corrected by snapshots
 let myGold = 0;
-let myUp = { hp: 0, mana: 0, q: 0, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0 };
+let myUp = { hp: 0, mana: 0, q: 0, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0 };
 let myStunUntil = 0;
 
 const players = new Map(); // id -> { mesh, name, hp, alive, snapshots: [{t,x,z,facing}], lastSeen }
@@ -686,6 +720,7 @@ const pickups = new Map(); // id -> { kind, x, z, mesh }
 const npcs = new Map(); // id -> { mesh, kind, name, say, sayUntil }
 const beamWarnings = [];
 const activePools = [];
+const activeGroundBursts = [];
 const projectileTargets = [];
 const projectileDogTargets = [];
 const projectileBlockers = [];
@@ -699,6 +734,7 @@ let eReadyAt = 0;
 let rReadyAt = 0;
 let cReadyAt = 0;
 let xReadyAt = 0;
+let zReadyAt = 0;
 let aaReadyAt = 0;
 let rCastUntil = 0;
 let qMode = false;
@@ -801,6 +837,14 @@ teleportRange.position.y = 0.04;
 teleportRange.visible = false;
 scene.add(teleportRange);
 
+const slotRadiusPreviewMat = new THREE.MeshBasicMaterial({ color: 0x9ee7ff, transparent: true, opacity: 0.62, side: THREE.DoubleSide });
+const slotRadiusPreview = new THREE.Mesh(new THREE.RingGeometry(0.92, 1.0, 72), slotRadiusPreviewMat);
+slotRadiusPreview.rotation.x = -Math.PI / 2;
+slotRadiusPreview.position.y = 0.065;
+slotRadiusPreview.visible = false;
+scene.add(slotRadiusPreview);
+let hoveredSlotKey = null;
+
 const blink = { active: false, start: 0 };
 const camPos = new THREE.Vector3();
 const camLook = new THREE.Vector3();
@@ -842,7 +886,7 @@ function onMessage(raw) {
       startMana = m.data.startMana || 100;
       myMana = startMana;
       myGold = 0;
-      myUp = { hp: 0, mana: 0, q: 0, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0 };
+      myUp = { hp: 0, mana: 0, q: 0, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0 };
       myStunUntil = 0;
       refreshSpellbookUi();
       break;
@@ -858,6 +902,12 @@ function onMessage(raw) {
       }
       if (m.data.kind === 'reditel_beam_warn') {
         spawnBeamWarning(m.data);
+        break;
+      }
+      if (m.data.kind === 'z') {
+        if (m.data.owner !== myId) {
+          spawnGroundBurst(m.data.owner, m.data.ox, m.data.oz, m.data.dx || Z_BASE_RADIUS, (m.data.dz || (Z_DELAY_MS / 1000)) * 1000, 0);
+        }
         break;
       }
       // ignore our own fire echo (we already spawned it locally)
@@ -907,6 +957,7 @@ function handleSnapshot(snap) {
     pl.upC = p.upC || 0;
     pl.upV = p.upV || 0;
     pl.upX = p.upX || 0;
+    pl.upZ = p.upZ || 0;
     pl.stunUntil = p.stunUntil || 0;
     pl.respawnAt = p.respawnAt || 0;
     pl.alive = p.alive;
@@ -966,6 +1017,7 @@ function handleSnapshot(snap) {
       c: me.upC || 0,
       v: me.upV || 0,
       x: me.upX || 0,
+      z: me.upZ || 0,
     };
     myStunUntil = me.stunUntil || 0;
     mpText.textContent = `${Math.round(myMana)}/${maxMana}`;
@@ -1089,6 +1141,10 @@ function castEquipped(slotKey) {
   }
   if (spellKind === 'x') {
     tryFireX();
+    return;
+  }
+  if (spellKind === 'z') {
+    tryCastZ();
   }
 }
 
@@ -1100,6 +1156,7 @@ function spellCooldownRatio(kind, now, statsNow) {
   if (kind === 'c') return Math.max(0, Math.min(1, Math.max(0, cReadyAt - now) / C_COOLDOWN_MS));
   if (kind === 'v') return Math.max(0, Math.min(1, Math.max(0, vReadyAt - now) / V_COOLDOWN_MS));
   if (kind === 'x') return Math.max(0, Math.min(1, Math.max(0, xReadyAt - now) / X_COOLDOWN_MS));
+  if (kind === 'z') return Math.max(0, Math.min(1, Math.max(0, zReadyAt - now) / Z_COOLDOWN_MS));
   return 0;
 }
 
@@ -1113,6 +1170,7 @@ function canCastSpell(kind, alive, now) {
   if (kind === 'c') return myUp.c > 0 && myMana >= C_COST && now >= cReadyAt;
   if (kind === 'v') return myUp.v > 0 && myMana >= V_COST && now >= vReadyAt;
   if (kind === 'x') return myUp.x > 0 && myMana >= X_COST && now >= xReadyAt;
+  if (kind === 'z') return myUp.z > 0 && myMana >= Z_COST && now >= zReadyAt;
   return false;
 }
 
@@ -1189,6 +1247,8 @@ for (const card of spellCards) {
 for (const slotKey of Object.keys(slotEls)) {
   const slotEl = slotEls[slotKey];
   if (!slotEl) continue;
+  slotEl.addEventListener('mouseenter', () => { hoveredSlotKey = slotKey; });
+  slotEl.addEventListener('mouseleave', () => { if (hoveredSlotKey === slotKey) hoveredSlotKey = null; });
   slotEl.addEventListener('dragover', e => {
     e.preventDefault();
     slotEl.classList.add('drag-over');
@@ -1276,6 +1336,7 @@ function setupSpawn() {
   cReadyAt = 0;
   vReadyAt = 0;
   xReadyAt = 0;
+  zReadyAt = 0;
   myStunUntil = 0;
   chargeAnim.active = false;
   qMode = false;
@@ -1461,6 +1522,34 @@ function tryFireX() {
   fireProjectile('x');
 }
 
+function tryCastZ() {
+  const me = players.get(myId);
+  if (!me || !me.alive) return;
+  if (Date.now() < myStunUntil) return;
+  if ((myUp.z || 0) <= 0) return;
+  const now = performance.now();
+  if (now < zReadyAt) return;
+  if (myMana < Z_COST) return;
+
+  updateMouseWorld();
+  let tx = myPos.x + Math.sin(myFacing) * 3.5;
+  let tz = myPos.z + Math.cos(myFacing) * 3.5;
+  if (hasMouse) {
+    tx = mouseWorld.x;
+    tz = mouseWorld.z;
+  }
+  tx = Math.max(-serverHalfX + 0.5, Math.min(serverHalfX - 0.5, tx));
+  tz = Math.max(-serverHalfZ + 0.5, Math.min(serverHalfZ - 0.5, tz));
+
+  const radius = zRadiusForLevel(myUp.z || 0);
+  const damage = zDamageForLevel(myUp.z || 0);
+  zReadyAt = now + Z_COOLDOWN_MS;
+  myMana = Math.max(0, myMana - Z_COST);
+
+  spawnGroundBurst(myId, tx, tz, radius, Z_DELAY_MS, damage);
+  send({ type: 'fire', data: { pid: myProjectileSeq++, ox: tx, oz: tz, dx: radius, dz: Z_DELAY_MS / 1000, kind: 'z' } });
+}
+
 function tryAutoAttack() {
   const me = players.get(myId);
   if (!me || !me.alive) return;
@@ -1622,6 +1711,129 @@ function updatePools(now) {
     const t = (now - p.startAt) * 0.01;
     p.ring.material.opacity = 0.32 + 0.13 * (0.5 + 0.5 * Math.sin(t));
   }
+}
+
+function spawnGroundBurst(ownerId, x, z, radius, delayMS, damage) {
+  const telegraph = new THREE.Mesh(
+    new THREE.RingGeometry(Math.max(0.1, radius - 0.07), radius, 48),
+    new THREE.MeshBasicMaterial({ color: 0xffb37a, transparent: true, opacity: 0.92, side: THREE.DoubleSide })
+  );
+  telegraph.rotation.x = -Math.PI / 2;
+  telegraph.position.set(x, 0.08, z);
+  scene.add(telegraph);
+
+  const pool = new THREE.Mesh(
+    new THREE.CircleGeometry(radius, 48),
+    new THREE.MeshBasicMaterial({ color: 0xff5f44, transparent: true, opacity: 0.0, side: THREE.DoubleSide })
+  );
+  pool.rotation.x = -Math.PI / 2;
+  pool.position.set(x, 0.07, z);
+  pool.visible = false;
+  scene.add(pool);
+
+  const now = performance.now();
+
+  activeGroundBursts.push({
+    ownerId,
+    x,
+    z,
+    radius,
+    damage,
+    startAt: now,
+    detonateAt: now + delayMS,
+    lingerUntil: now + delayMS + Z_LINGER_MS,
+    nextTickAt: now + delayMS,
+    endAt: now + delayMS + Z_LINGER_MS,
+    telegraph,
+    pool,
+    exploded: false,
+  });
+}
+
+function applyGroundBurstDamage(x, z, radius, damage) {
+  if (damage <= 0) return;
+  for (const t of projectileTargets) {
+    if (t.id === myId) continue;
+    const dx = t.x - x;
+    const dz = t.z - z;
+    if (dx * dx + dz * dz <= (radius + PLAYER_RADIUS) ** 2) {
+      send({ type: 'hit', data: { pid: 0, target: t.id, dmg: damage } });
+    }
+  }
+  for (const n of projectileDogTargets) {
+    const dx = n.x - x;
+    const dz = n.z - z;
+    if (dx * dx + dz * dz <= (radius + n.rad) ** 2) {
+      send({ type: 'hit', data: { pid: 0, target: n.id, dmg: damage } });
+    }
+  }
+}
+
+function updateGroundBursts(now) {
+  for (let i = activeGroundBursts.length - 1; i >= 0; i--) {
+    const b = activeGroundBursts[i];
+    if (!b.exploded && now >= b.detonateAt) {
+      b.exploded = true;
+      scene.remove(b.telegraph);
+      b.telegraph.geometry.dispose();
+      b.telegraph.material.dispose();
+      b.pool.visible = true;
+      b.pool.material.opacity = 0.66;
+      if (b.ownerId === myId && b.damage > 0) {
+        applyGroundBurstDamage(b.x, b.z, b.radius, b.damage);
+      }
+      b.nextTickAt = now + Z_TICK_MS;
+    }
+
+    if (b.exploded) {
+      if (b.ownerId === myId && b.damage > 0 && now < b.lingerUntil) {
+        const dot = Math.max(1, Math.round(b.damage * Z_LINGER_DAMAGE_FACTOR));
+        while (now >= b.nextTickAt && b.nextTickAt < b.lingerUntil) {
+          applyGroundBurstDamage(b.x, b.z, b.radius, dot);
+          b.nextTickAt += Z_TICK_MS;
+        }
+      }
+      const left = Math.max(0, Math.min(1, (b.endAt - now) / Math.max(1, Z_LINGER_MS)));
+      b.pool.material.opacity = 0.24 + 0.42 * left;
+      b.pool.material.color.setHex(0xff5f44);
+    } else {
+      const pre = Math.max(0, Math.min(1, (b.detonateAt - now) / Math.max(1, b.detonateAt - b.startAt)));
+      b.telegraph.material.opacity = 0.34 + 0.58 * (1 - pre);
+    }
+
+    if (now >= b.endAt) {
+      if (b.telegraph.parent) {
+        scene.remove(b.telegraph);
+        b.telegraph.geometry.dispose();
+        b.telegraph.material.dispose();
+      }
+      scene.remove(b.pool);
+      b.pool.geometry.dispose();
+      b.pool.material.dispose();
+      activeGroundBursts.splice(i, 1);
+    }
+  }
+}
+
+function updateSlotRadiusPreview(alive) {
+  if (!alive || !hoveredSlotKey) {
+    slotRadiusPreview.visible = false;
+    return;
+  }
+  const kind = equippedBySlot[hoveredSlotKey];
+  if (!kind) {
+    slotRadiusPreview.visible = false;
+    return;
+  }
+  const level = myUp[kind] || 0;
+  const radius = spellRadiusForLevel(kind, level);
+  if (radius == null || radius <= 0) {
+    slotRadiusPreview.visible = false;
+    return;
+  }
+  slotRadiusPreview.visible = true;
+  slotRadiusPreview.position.set(myPos.x, 0.065, myPos.z);
+  slotRadiusPreview.scale.setScalar(radius);
 }
 
 function refreshProjectileCollisionTargets() {
@@ -2029,6 +2241,7 @@ function loop(t) {
   // projectiles
   refreshProjectileCollisionTargets();
   updateProjectiles(dt);
+  updateGroundBursts(performance.now());
   updateBeamWarnings(performance.now());
   updatePools(performance.now());
   updatePickups();
@@ -2107,6 +2320,7 @@ function loop(t) {
   // cooldown HUD
   const now = performance.now();
   const statsNow = myAbilityStats();
+  updateSlotRadiusPreview(alive);
   const wRemain = Math.max(0, wActiveUntil - now);
   for (const slotKey of Object.keys(slotEls)) {
     const mask = slotMaskEls[slotKey];
