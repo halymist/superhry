@@ -84,9 +84,10 @@ const X_DAMAGE = 12;
 const Z_COOLDOWN_MS = 7800;
 const Z_COST = 50;
 const Z_DELAY_MS = 700;
-const Z_LINGER_MS = 1000;
+const Z_LINGER_MS = 3000;
 const Z_TICK_MS = 250;
 const Z_LINGER_DAMAGE_FACTOR = 0.35;
+const Z_CAST_RANGE = 13.0;
 const Z_BASE_RADIUS = 1.55;
 const Z_RADIUS_STEP = 0.22;
 const Z_BASE_DAMAGE = 18;
@@ -180,12 +181,13 @@ function zDamageForLevel(level) {
 }
 
 function spellRadiusForLevel(kind, level) {
-  if (kind === 'q') return Q_RADIUS;
-  if (kind === 'r') return R_RADIUS + Math.max(0, level) * 0.32;
-  if (kind === 'c') return 1.2;
+  if (kind === 'q') return Q_RANGE;
+  if (kind === 'e') return E_RANGE + Math.max(0, level) * 1.1;
+  if (kind === 'r') return R_RANGE;
+  if (kind === 'c') return C_DASH_DIST;
   if (kind === 'v') return poolRadiusForLevel(level);
-  if (kind === 'x') return X_RADIUS;
-  if (kind === 'z') return zRadiusForLevel(level);
+  if (kind === 'x') return X_RANGE;
+  if (kind === 'z') return Z_CAST_RANGE;
   return null;
 }
 
@@ -1537,6 +1539,15 @@ function tryCastZ() {
   if (hasMouse) {
     tx = mouseWorld.x;
     tz = mouseWorld.z;
+  }
+  {
+    const dx = tx - myPos.x;
+    const dz = tz - myPos.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > Z_CAST_RANGE && dist > 0.001) {
+      tx = myPos.x + (dx / dist) * Z_CAST_RANGE;
+      tz = myPos.z + (dz / dist) * Z_CAST_RANGE;
+    }
   }
   tx = Math.max(-serverHalfX + 0.5, Math.min(serverHalfX - 0.5, tx));
   tz = Math.max(-serverHalfZ + 0.5, Math.min(serverHalfZ - 0.5, tz));
