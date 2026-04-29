@@ -50,8 +50,8 @@ const (
 	dogHitCDMS        = 900
 	dogChaseSpeed     = 4.7
 	dogWanderSpeed    = 2.45
-	reditelHP         = 720
-	reditelRegenPS    = 12.0
+	reditelHP         = 900
+	reditelRegenPS    = 18.0
 	namestekTalkCDMS  = 10000
 	sofieFollowRange  = 10.0
 	sofieFollowDrop   = 16.0
@@ -207,19 +207,20 @@ type npcProjectile struct {
 }
 
 type npcState struct {
-	ID       uint64  `json:"id"`
-	Kind     string  `json:"kind"`
-	Name     string  `json:"name"`
-	X        float64 `json:"x"`
-	Z        float64 `json:"z"`
-	Facing   float64 `json:"facing"`
-	Scale    float64 `json:"scale"`
-	HP       int     `json:"hp,omitempty"`
-	MaxHP    int     `json:"maxHp,omitempty"`
-	Alive    bool    `json:"alive"`
-	RespawnT int64   `json:"respawnAt,omitempty"`
-	Say      string  `json:"say,omitempty"`
-	SayUntil int64   `json:"sayUntil,omitempty"`
+	ID        uint64  `json:"id"`
+	Kind      string  `json:"kind"`
+	Name      string  `json:"name"`
+	X         float64 `json:"x"`
+	Z         float64 `json:"z"`
+	Facing    float64 `json:"facing"`
+	Scale     float64 `json:"scale"`
+	HP        int     `json:"hp,omitempty"`
+	MaxHP     int     `json:"maxHp,omitempty"`
+	Alive     bool    `json:"alive"`
+	StunUntil int64   `json:"stunUntil,omitempty"`
+	RespawnT  int64   `json:"respawnAt,omitempty"`
+	Say       string  `json:"say,omitempty"`
+	SayUntil  int64   `json:"sayUntil,omitempty"`
 }
 
 type npcRuntime struct {
@@ -668,11 +669,13 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 					n.nextBeamMS = nowMS + 7000
 					n.beamFireMS = 0
 				}
+				n.state.StunUntil = 0
 			}
 			continue
 		}
 
 		if nowMS < n.stunUntilMS {
+			n.state.StunUntil = n.stunUntilMS
 			n.vx = 0
 			n.vz = 0
 			if n.state.SayUntil > 0 && nowMS >= n.state.SayUntil {
@@ -681,6 +684,7 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 			}
 			continue
 		}
+		n.state.StunUntil = 0
 
 		if n.state.Kind == "reditel" {
 			if n.state.MaxHP <= 0 {
@@ -1610,6 +1614,7 @@ func (h *ArenaHub) applyStunNPC(id uint64, durMS int64) {
 	until := nowMS + durMS
 	if until > n.stunUntilMS {
 		n.stunUntilMS = until
+		n.state.StunUntil = until
 	}
 }
 
@@ -1680,6 +1685,7 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 		if killed {
 			n.state.HP = 0
 			n.state.Alive = false
+			n.state.StunUntil = 0
 			n.state.RespawnT = time.Now().UnixMilli() + npcRespawnMS
 			n.state.Say = ""
 			n.state.SayUntil = 0
@@ -1687,6 +1693,15 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 			n.stunUntilMS = 0
 			if n.state.Kind == "pes" {
 				h.spawnPickup("gold", n.state.X, n.state.Z, true, time.Now())
+			} else if n.state.Kind == "reditel" {
+				coins := 2 + rand.Intn(4)
+				for i := 0; i < coins; i++ {
+					ang := rand.Float64() * 2 * math.Pi
+					rad := 0.6 + rand.Float64()*1.6
+					px := n.state.X + math.Sin(ang)*rad
+					pz := n.state.Z + math.Cos(ang)*rad
+					h.spawnPickup("gold", px, pz, true, time.Now())
+				}
 			}
 		} else if kind == "x" {
 			h.applyStunNPC(ev.target, xStunBaseMS+h.stunExtraFromUpgrade(ev.shooter))

@@ -68,12 +68,16 @@
           <button id="spellbook-close" class="sb-close" type="button">Zavřít</button>
         </div>
         <div class="sb-meta">Vylepšení (3 Prémie)</div>
-        <div class="sb-inline-upgrades">
-          <button class="sb-inline-upgrade" data-upgrade="hp" type="button">HP <span id="u-hp">0/10</span></button>
-          <button class="sb-inline-upgrade" data-upgrade="mana" type="button">Mana <span id="u-mana">0/10</span></button>
-        </div>
 
         <div class="sb-spells">
+          <button class="sb-spell sb-upgrade" data-upgrade="hp" type="button">
+            <div class="sb-spell-top"><span class="sb-name">HP</span></div>
+            <div class="sb-lvl" id="u-hp">0/10</div>
+          </button>
+          <button class="sb-spell sb-upgrade" data-upgrade="mana" type="button">
+            <div class="sb-spell-top"><span class="sb-name">Mana</span></div>
+            <div class="sb-lvl" id="u-mana">0/10</div>
+          </button>
           <div class="sb-spell" data-spell="q" draggable="true">
             <div class="sb-spell-top"><span class="sb-name">Salva</span></div>
             <div class="sb-lvl" id="u-q">0/5</div>

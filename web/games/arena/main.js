@@ -78,7 +78,7 @@ const X_SPEED_START = 22.0;
 const X_SPEED_MAX = 26.0;
 const X_ACCEL = 0.0;
 const X_RANGE = 22.0;
-const X_RADIUS = 0.4;
+const X_RADIUS = 0.72;
 const X_DAMAGE = 12;
 
 const SPELL_DEFS = {
@@ -194,7 +194,7 @@ const spellbookPanel = document.getElementById('spellbook-panel');
 const spellbookToggle = document.getElementById('spellbook-toggle');
 const spellbookClose = document.getElementById('spellbook-close');
 const respawnIndicator = document.getElementById('respawn-indicator');
-const spellbookUpgradeInline = Array.from(document.querySelectorAll('#spellbook-panel .sb-inline-upgrade'));
+const spellbookUpgradeInline = Array.from(document.querySelectorAll('#spellbook-panel .sb-upgrade'));
 const spellCards = Array.from(document.querySelectorAll('#spellbook-panel .sb-spell'));
 const upHpEl = document.getElementById('u-hp');
 const upManaEl = document.getElementById('u-mana');
@@ -349,6 +349,12 @@ function makeBody(color) {
   g.add(sprite);
   g.userData.nameSprite = sprite;
 
+  const stunSp = makeStunSprite();
+  stunSp.position.y = 2.9;
+  stunSp.visible = false;
+  g.add(stunSp);
+  g.userData.stunSprite = stunSp;
+
   const hpSprite = makeHpSprite();
   hpSprite.position.y = 1.85;
   g.add(hpSprite);
@@ -384,6 +390,26 @@ function makeTalkSprite(text) {
   sp.scale.set(3.8, 0.72, 1);
   sp.userData.canvas = c;
   sp.userData.ctx = ctx;
+  sp.userData.tex = tex;
+  return sp;
+}
+
+function makeStunSprite() {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 64;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.font = 'bold 42px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#8bf6ff';
+  ctx.fillText('***', c.width / 2, c.height / 2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.minFilter = THREE.LinearFilter;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+  const sp = new THREE.Sprite(mat);
+  sp.scale.set(2.1, 0.55, 1);
   sp.userData.tex = tex;
   return sp;
 }
@@ -562,9 +588,15 @@ function makeNPCMesh(n) {
   talkSp.visible = false;
   g.add(talkSp);
 
+  const stunSp = makeStunSprite();
+  stunSp.position.y = isDog ? 2.25 : (isReditel ? 2.85 : 3.1);
+  stunSp.visible = false;
+  g.add(stunSp);
+
   g.scale.setScalar(n.scale || 1);
   g.userData.nameSprite = nameSp;
   g.userData.talkSprite = talkSp;
+  g.userData.stunSprite = stunSp;
   return g;
 }
 
@@ -576,7 +608,7 @@ function updateNPCsFromSnapshot(snap) {
     if (!obj) {
       const mesh = makeNPCMesh(n);
       scene.add(mesh);
-      obj = { id: n.id, mesh, kind: n.kind, name: n.name, hp: n.hp || 0, maxHp: n.maxHp || 0, alive: n.alive !== false, say: '', sayUntil: 0 };
+      obj = { id: n.id, mesh, kind: n.kind, name: n.name, hp: n.hp || 0, maxHp: n.maxHp || 0, alive: n.alive !== false, say: '', sayUntil: 0, stunUntil: 0 };
       npcs.set(n.id, obj);
     }
     obj.id = n.id;
@@ -598,7 +630,11 @@ function updateNPCsFromSnapshot(snap) {
     }
     obj.say = n.say || '';
     obj.sayUntil = n.sayUntil || 0;
+    obj.stunUntil = n.stunUntil || 0;
     if (obj.say) setTalkSprite(obj.mesh.userData.talkSprite, obj.say);
+    if (obj.mesh.userData.stunSprite) {
+      obj.mesh.userData.stunSprite.visible = obj.alive && Date.now() < obj.stunUntil;
+    }
   }
   for (const id of [...npcs.keys()]) {
     if (!seen.has(id)) {
@@ -626,6 +662,10 @@ function updateNpcTalkVisibility() {
       continue;
     }
     sp.visible = true;
+    const stunSp = n.mesh.userData.stunSprite;
+    if (stunSp) {
+      stunSp.visible = n.alive && nowMs < (n.stunUntil || 0);
+    }
   }
 }
 
@@ -873,6 +913,9 @@ function handleSnapshot(snap) {
     if (pl.mesh.userData.hpSprite) {
       setHpSprite(pl.mesh.userData.hpSprite, p.hp, pl.maxHp);
       pl.mesh.userData.hpSprite.visible = p.id !== myId && p.alive;
+    }
+    if (pl.mesh.userData.stunSprite) {
+      pl.mesh.userData.stunSprite.visible = p.alive && Date.now() < pl.stunUntil;
     }
     if (p.id !== myId) {
       pl.snapshots.push({ t: snap.t, x: p.x, z: p.z, facing: p.facing });
@@ -1482,7 +1525,7 @@ function spawnProjectile(p) {
   else                    color = p.owner === myId ? 0xffe48a : 0xff9b66;
 
   const geom = kind === 'x'
-    ? new THREE.BoxGeometry(0.95, 0.3, 0.55)
+    ? new THREE.BoxGeometry(1.2, 0.4, 0.4)
     : new THREE.SphereGeometry(spec.radius, 12, 9);
   const mesh = new THREE.Mesh(
     geom,
