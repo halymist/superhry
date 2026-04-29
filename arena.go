@@ -109,6 +109,8 @@ const (
 	vBaseRadius   = 5.7
 	vRadStep      = 0.22
 	vLifestealPct = 0.10
+	vBaseDamage   = 22
+	vDamageStep   = 7
 
 	xStunBaseMS = 1700
 	xStunStepMS = 150
@@ -1559,7 +1561,11 @@ func (h *ArenaHub) applyCast(ev castEvent) {
 
 	if ev.kind == "v" {
 		radius := vBaseRadius + float64(upV)*vRadStep
-		dmg := 10 + upV*8
+		lvl := upV
+		if lvl < 1 {
+			lvl = 1
+		}
+		dmg := vBaseDamage + (lvl-1)*vDamageStep
 		nowMS := time.Now().UnixMilli()
 		h.auras[owner] = &playerAura{
 			Owner:    owner,

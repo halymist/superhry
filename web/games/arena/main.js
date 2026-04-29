@@ -12,8 +12,8 @@ const Q_SPEED_MAX   = 31.0;
 const Q_ACCEL       = 0.0;
 const Q_RANGE      = 19.0;
 const Q_RADIUS     = 0.24;
-const Q_BASE_DAMAGE = 4;
-const Q_DAMAGE_STEP = 5;
+const Q_BASE_DAMAGE = 8;
+const Q_DAMAGE_STEP = 4;
 const Q_COOLDOWN_MS = 5600;
 const Q_COST       = 35;
 const Q_BURST_MS = 760;
@@ -34,7 +34,8 @@ const R_SPEED_MAX   = 36.0;
 const R_ACCEL       = 18.0;
 const R_RANGE      = 60.0;
 const R_RADIUS     = 1.45;
-const R_DAMAGE     = 80;
+const R_DAMAGE     = 100;
+const R_DAMAGE_STEP = 30;
 const R_COOLDOWN_MS = 2500;
 const R_COST       = 75;
 const R_CAST_MS    = 1000;
@@ -91,8 +92,8 @@ const Z_LINGER_DAMAGE_FACTOR = 0.125;
 const Z_CAST_RANGE = 13.0;
 const Z_BASE_RADIUS = 1.55;
 const Z_RADIUS_STEP = 0.22;
-const Z_BASE_DAMAGE = 32;
-const Z_DAMAGE_STEP = 17;
+const Z_BASE_DAMAGE = 42;
+const Z_DAMAGE_STEP = 15;
 
 const PLAYER_MODEL_COLORS = [0x58c7ff, 0xff7b7b, 0x7be39a, 0xffd26b];
 
@@ -133,7 +134,7 @@ function myAbilityStats() {
     wDuration: W_DURATION_MS + myUp.w * 1200,
     eRange: E_RANGE + myUp.e * 1.1,
     rRadius: R_RADIUS + myUp.r * 0.32,
-    rDmg: R_DAMAGE + myUp.r * 34,
+    rDmg: R_DAMAGE + myUp.r * R_DAMAGE_STEP,
   };
 }
 
