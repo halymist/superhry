@@ -21,6 +21,7 @@
       <div id="respawn-indicator" class="respawn-indicator" hidden>Respawn in 10s</div>
 
       <div class="hp-center-panel">
+        <div id="active-buffs" class="active-buffs" aria-label="Active buffs"></div>
         <div id="buff-w-indicator" class="buff-indicator" hidden>Sprint</div>
         <div id="r-cast-wrap" class="cast-bar-wrap" hidden>
           <div class="cast-bar-track">
@@ -65,7 +66,7 @@
 
       <div class="spellbook-panel" id="spellbook-panel" hidden>
         <div class="sb-head">
-          <div class="sb-meta">Vylepšení (3 Prémie)</div>
+          <div class="sb-meta">Vylepšení (2 Prémie)</div>
           <button id="spellbook-close" class="sb-close" type="button" aria-label="Zavřít panel">&times;</button>
         </div>
 
@@ -118,6 +119,12 @@
       <div class="box">
         <div><b>Zadej jméno</b></div>
         <input id="name-input" maxlength="16" placeholder="player" autofocus />
+        <div class="char-models" id="char-models">
+          <button class="char-model" data-model="0" type="button" aria-label="Model 1"></button>
+          <button class="char-model" data-model="1" type="button" aria-label="Model 2"></button>
+          <button class="char-model" data-model="2" type="button" aria-label="Model 3"></button>
+          <button class="char-model" data-model="3" type="button" aria-label="Model 4"></button>
+        </div>
         <button id="name-go">Připojit</button>
       </div>
     </div>

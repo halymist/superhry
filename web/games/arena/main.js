@@ -12,10 +12,10 @@ const Q_SPEED_MAX   = 31.0;
 const Q_ACCEL       = 0.0;
 const Q_RANGE      = 19.0;
 const Q_RADIUS     = 0.24;
-const Q_DAMAGE     = 10;
+const Q_DAMAGE     = 6;
 const Q_COOLDOWN_MS = 5600;
 const Q_COST       = 35;
-const Q_BURST_MS = 1100;
+const Q_BURST_MS = 760;
 const Q_BURST_INTERVAL_MS = 130;
 
 // Ranged auto-attack
@@ -41,7 +41,7 @@ const R_CAST_MS    = 1000;
 // C dash (Charge)
 const C_COOLDOWN_MS = 7000;
 const C_COST        = 40;
-const C_DASH_DIST   = 8.8;
+const C_DASH_DIST   = 10.2;
 
 const PLAYER_RADIUS = 0.6;
 
@@ -81,17 +81,19 @@ const X_RANGE = 22.0;
 const X_RADIUS = 0.72;
 const X_DAMAGE = 12;
 
-const Z_COOLDOWN_MS = 7800;
+const Z_COOLDOWN_MS = 3000;
 const Z_COST = 50;
 const Z_DELAY_MS = 700;
-const Z_LINGER_MS = 3000;
+const Z_LINGER_MS = 2000;
 const Z_TICK_MS = 250;
-const Z_LINGER_DAMAGE_FACTOR = 0.35;
+const Z_LINGER_DAMAGE_FACTOR = 0.125;
 const Z_CAST_RANGE = 13.0;
 const Z_BASE_RADIUS = 1.55;
 const Z_RADIUS_STEP = 0.22;
-const Z_BASE_DAMAGE = 18;
-const Z_DAMAGE_STEP = 9;
+const Z_BASE_DAMAGE = 32;
+const Z_DAMAGE_STEP = 17;
+
+const PLAYER_MODEL_COLORS = [0x58c7ff, 0xff7b7b, 0x7be39a, 0xffd26b];
 
 const SPELL_DEFS = {
   q: { id: 'q', name: 'Salva' },
@@ -121,16 +123,16 @@ const chargeAnim = { active: false, startAt: 0, endAt: 0, fromX: 0, fromZ: 0, to
 function upgradeCost(kind, lvl) {
   void kind;
   void lvl;
-  return 3;
+  return 2;
 }
 
 function myAbilityStats() {
   return {
-    qDmg: Q_DAMAGE + myUp.q * 10,
+    qDmg: Q_DAMAGE + myUp.q * 8,
     wDuration: W_DURATION_MS + myUp.w * 1200,
     eRange: E_RANGE + myUp.e * 1.1,
     rRadius: R_RADIUS + myUp.r * 0.32,
-    rDmg: R_DAMAGE + myUp.r * 26,
+    rDmg: R_DAMAGE + myUp.r * 34,
   };
 }
 
@@ -211,6 +213,8 @@ function tryCastPool() {
 const nameModal = document.getElementById('name-modal');
 const nameInput = document.getElementById('name-input');
 const nameGo    = document.getElementById('name-go');
+const charModelButtons = Array.from(document.querySelectorAll('.char-model'));
+const activeBuffsEl = document.getElementById('active-buffs');
 
 const hpText = document.getElementById('hp-text');
 const hpFill = document.getElementById('hp-fill');
@@ -254,17 +258,49 @@ const slotLabelEls = {
   r: slotR?.querySelector('.label'),
 };
 
-const equippedBySlot = { q: null, w: null, e: null, r: null };
+const equippedBySlot = { q: 'q', w: null, e: null, r: null };
+
+const BUFF_DEFS = {
+  speed: { key: 'speed', label: 'spd', color: '#4fc3ff' },
+  hp: { key: 'hp', label: 'hp', color: '#ff6e8a' },
+  mana: { key: 'mana', label: 'mp', color: '#6bb7ff' },
+  dmg: { key: 'dmg', label: 'dmg', color: '#ff9b5c' },
+};
 
 const savedName = sessionStorage.getItem('superhry-name') || '';
+const savedModelRaw = Number(sessionStorage.getItem('superhry-model') || '0');
+let selectedModel = Number.isFinite(savedModelRaw) ? Math.max(0, Math.min(3, Math.trunc(savedModelRaw))) : 0;
 nameInput.value = savedName;
 
 let myName = '';
+
+function modelColor(model) {
+  const idx = Number.isFinite(model) ? Math.max(0, Math.min(3, Math.trunc(model))) : 0;
+  return PLAYER_MODEL_COLORS[idx] || PLAYER_MODEL_COLORS[0];
+}
+
+function updateModelPickerUi() {
+  for (const btn of charModelButtons) {
+    const model = Number(btn.dataset.model || '0');
+    btn.classList.toggle('active', model === selectedModel);
+  }
+}
+
+for (const btn of charModelButtons) {
+  btn.addEventListener('click', () => {
+    const model = Number(btn.dataset.model || '0');
+    if (!Number.isFinite(model)) return;
+    selectedModel = Math.max(0, Math.min(3, Math.trunc(model)));
+    updateModelPickerUi();
+  });
+}
+updateModelPickerUi();
 
 function startWithName() {
   const n = (nameInput.value || 'player').trim().slice(0, 16);
   myName = n || 'player';
   sessionStorage.setItem('superhry-name', myName);
+  sessionStorage.setItem('superhry-model', String(selectedModel));
   nameModal.style.display = 'none';
   startGame();
 }
@@ -743,8 +779,9 @@ let startHP = 100;
 let startMana = 100;
 let myMana = 100; // optimistic local prediction; corrected by snapshots
 let myGold = 0;
-let myUp = { hp: 0, mana: 0, q: 0, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0 };
+let myUp = { hp: 0, mana: 0, q: 1, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0 };
 let myStunUntil = 0;
+const myBuffs = new Map();
 
 const players = new Map(); // id -> { mesh, name, hp, alive, snapshots: [{t,x,z,facing}], lastSeen }
 const projectiles = []; // {pid, owner, x, z, vx, vz, dist, max, mesh, hitDone}
@@ -891,7 +928,7 @@ function connect() {
   const url = `${proto}://${location.host}/ws/arena`;
   ws = new WebSocket(url);
   ws.addEventListener('open', () => {
-    send({ type: 'join', data: { name: myName } });
+    send({ type: 'join', data: { name: myName, model: selectedModel } });
   });
   ws.addEventListener('message', ev => onMessage(ev.data));
   ws.addEventListener('close', () => {
@@ -918,7 +955,7 @@ function onMessage(raw) {
       startMana = m.data.startMana || 100;
       myMana = startMana;
       myGold = 0;
-      myUp = { hp: 0, mana: 0, q: 0, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0 };
+      myUp = { hp: 0, mana: 0, q: 1, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0 };
       myStunUntil = 0;
       refreshSpellbookUi();
       break;
@@ -963,16 +1000,17 @@ function handleSnapshot(snap) {
     seenIds.add(p.id);
     let pl = players.get(p.id);
     if (!pl) {
-      const color = p.id === myId ? 0x6cf : pickColor(p.id);
+      const color = modelColor(p.model || 0);
       const mesh = makeBody(color);
       scene.add(mesh);
-      pl = { mesh, name: p.name, hp: p.hp, mana: p.mana, alive: p.alive, snapshots: [], color };
+      pl = { mesh, name: p.name, hp: p.hp, mana: p.mana, alive: p.alive, snapshots: [], color, model: p.model || 0 };
       players.set(p.id, pl);
-      setNameSprite(mesh.userData.nameSprite, p.name, p.id === myId ? '#6cf' : '#e6e8ee');
+      setNameSprite(mesh.userData.nameSprite, p.name, '#e6e8ee');
     }
+    pl.model = Number.isFinite(p.model) ? Math.max(0, Math.min(3, Math.trunc(p.model))) : 0;
     if (pl.name !== p.name) {
       pl.name = p.name;
-      setNameSprite(pl.mesh.userData.nameSprite, p.name, p.id === myId ? '#6cf' : '#e6e8ee');
+      setNameSprite(pl.mesh.userData.nameSprite, p.name, '#e6e8ee');
     }
     const wasAlive = pl.alive;
     pl.hp = p.hp;
@@ -1051,6 +1089,7 @@ function handleSnapshot(snap) {
       x: me.upX || 0,
       z: me.upZ || 0,
     };
+    setMyBuffs(me.buffs || []);
     myStunUntil = me.stunUntil || 0;
     mpText.textContent = `${Math.round(myMana)}/${maxMana}`;
     mpFill.style.width = `${Math.max(0, myMana) / maxMana * 100}%`;
@@ -1114,8 +1153,63 @@ function escapeHtml(s) {
 }
 
 function pickColor(id) {
-  const palette = [0xe88, 0x8e8, 0xee8, 0xe8e, 0x8ee, 0xfa6, 0xf68, 0x68f];
-  return palette[id % palette.length];
+  return modelColor(id % PLAYER_MODEL_COLORS.length);
+}
+
+function setMyBuffs(buffs) {
+  myBuffs.clear();
+  const now = Date.now();
+  for (const b of buffs || []) {
+    if (!b || !BUFF_DEFS[b.kind]) continue;
+    const until = Number(b.until) || 0;
+    if (until > now) myBuffs.set(b.kind, until);
+  }
+}
+
+function hasMyBuff(kind) {
+  const until = myBuffs.get(kind) || 0;
+  return until > Date.now();
+}
+
+function updateActiveBuffIcons(nowMs) {
+  if (!activeBuffsEl) return;
+  const entries = [];
+  for (const [kind, until] of myBuffs.entries()) {
+    if (until > nowMs) entries.push({ kind, until });
+  }
+  entries.sort((a, b) => a.until - b.until);
+
+  const seen = new Set(entries.map(e => e.kind));
+  for (const kind of Array.from(myBuffs.keys())) {
+    if (!seen.has(kind)) myBuffs.delete(kind);
+  }
+
+  activeBuffsEl.textContent = '';
+  for (const e of entries) {
+    const def = BUFF_DEFS[e.kind];
+    if (!def) continue;
+    const remainMS = Math.max(0, e.until - nowMs);
+    const ratio = Math.max(0, Math.min(1, remainMS / 60000));
+
+    const icon = document.createElement('div');
+    icon.className = 'buff-icon';
+    icon.style.background = def.color;
+    icon.title = `${def.label.toUpperCase()} ${Math.ceil(remainMS / 1000)}s`;
+
+    const mask = document.createElement('div');
+    mask.className = 'buff-time-mask';
+    mask.style.top = '0';
+    mask.style.transform = `scaleY(${1 - ratio})`;
+
+    const txt = document.createElement('div');
+    txt.className = 'buff-time-text';
+    txt.textContent = `${Math.ceil(remainMS / 1000)}s`;
+
+    icon.textContent = def.label;
+    icon.appendChild(mask);
+    icon.appendChild(txt);
+    activeBuffsEl.appendChild(icon);
+  }
 }
 
 function isSpellUnlocked(kind) {
@@ -1631,7 +1725,7 @@ function projectileSpec(kind, boost = null) {
     case 'reditel':
       return { radius: 0.22, startSpeed: 12.0, maxSpeed: 12.0, accel: 0, range: 10.0, dmg: 9, pierce: true };
     case 'reditel_beam':
-      return { radius: 0.78, startSpeed: 78.0, maxSpeed: 78.0, accel: 0, range: 44.0, dmg: 80, pierce: true };
+      return { radius: 0.92, startSpeed: 78.0, maxSpeed: 78.0, accel: 0, range: 44.0, dmg: 80, pierce: true };
     case 'r':
       return { radius: b.rRadius, startSpeed: R_SPEED_START, maxSpeed: R_SPEED_MAX, accel: R_ACCEL, range: R_RANGE, dmg: b.rDmg, pierce: true };
     case 'aa':
@@ -1996,7 +2090,16 @@ function disposeProjectile(i) {
 function spawnPickupMesh(pk) {
   const isHP = pk.kind === 'hp';
   const isGold = pk.kind === 'gold';
-  const color = isHP ? 0xff5d8c : (isGold ? 0xffd45b : 0x56d9ff);
+  const colorByKind = {
+    hp: 0xff5d8c,
+    mana: 0x56d9ff,
+    gold: 0xffd45b,
+    buff_speed: 0x4fc3ff,
+    buff_hp: 0xff6e8a,
+    buff_mana: 0x6bb7ff,
+    buff_dmg: 0xff9b5c,
+  };
+  const color = colorByKind[pk.kind] || (isHP ? 0xff5d8c : (isGold ? 0xffd45b : 0x56d9ff));
   const baseOpacity = 0.55;
   const g = new THREE.Group();
   const orbMat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.85, transparent: true, opacity: 1.0 });
@@ -2133,7 +2236,8 @@ function loop(t) {
     }
 
     const sprintActive = performance.now() < wActiveUntil;
-    const moveSpeedNow = MOVE_SPEED * (sprintActive ? W_SPEED_MULT : 1);
+    const speedBuffMult = hasMyBuff('speed') ? 1.1 : 1.0;
+    const moveSpeedNow = MOVE_SPEED * speedBuffMult * (sprintActive ? W_SPEED_MULT : 1);
     myVel.set(0, 0);
     if (stunned) {
       hasMoveTarget = false;
@@ -2287,6 +2391,7 @@ function loop(t) {
   updatePools(performance.now());
   updatePickups();
   updateNpcTalkVisibility();
+  updateActiveBuffIcons(Date.now());
 
   // skillshot / autoattack aim indicator
   if (alive && hasMouse) {

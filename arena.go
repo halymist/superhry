@@ -25,7 +25,7 @@ const (
 	startHP      = 100
 	startMana    = 100
 	hitDamage    = 40
-	respawnMS    = 6000
+	respawnMS    = 5000
 	mapHalfX     = 36.0
 	mapHalfZ     = 22.0
 	maxNameLen   = 16
@@ -36,26 +36,31 @@ const (
 
 	pickupSpawnMS          = 6000
 	maxPickups             = 5
+	maxBuffPickups         = 1
+	buffSpawnMS            = 60000
 	pickupAmount           = 20
 	goldAmount             = 1
 	pickupRadius           = 1.2 // pickup-collection distance
 	pickupLifeMS           = 30000
+	buffPickupLifeMS       = 30000
+	buffDurationMS         = 60000
+	buffStatPct            = 0.10
 	npcSayMS               = 7000
 	npcRespawnMS           = 5000
 	dogHP                  = 90
 	dogAggroRange          = 11.0
 	dogDeaggroRng          = 16.0
 	dogTouchRange          = 1.15
-	dogTouchDmg            = 14
+	dogTouchDmg            = 16
 	dogHitCDMS             = 900
 	dogChaseSpeed          = 4.7
 	dogWanderSpeed         = 2.45
 	namestekHP             = 320
-	namestekRegenPS        = 8.0
+	namestekRegenPS        = 11.0
 	namestekAggroRng       = 12.0
 	namestekDeaggroRng     = 18.0
 	namestekTouchRange     = 1.18
-	namestekTouchDmg       = 18
+	namestekTouchDmg       = 20
 	namestekHitCDMS        = 850
 	namestekChaseSpeed     = 3.6
 	namestekWanderSpeed    = 1.65
@@ -65,8 +70,8 @@ const (
 	namestekChargeMS       = 280
 	namestekChargeCDMS     = 7000
 	namestekChargeHitR     = 1.28
-	namestekChargeDmg      = 26
-	namestekChargeStunMS   = 700
+	namestekChargeDmg      = 29
+	namestekChargeStunMS   = 550
 	reditelHP              = 900
 	reditelRegenPS         = 18.0
 	namestekTalkCDMS       = 10000
@@ -82,34 +87,34 @@ const (
 	reditelShotCDMS        = 140
 	reditelBurstMS         = 3000
 	reditelPauseMS         = 1700
-	reditelGoldDropMS      = 12000
+	reditelGoldDropMS      = 13000
 	reditelBeamCDMS        = 12000
 	reditelBeamSpeed       = 78.0
 	reditelBeamRange       = 44.0
-	reditelBeamRad         = 0.78
+	reditelBeamRad         = 0.92
 	reditelBeamDmg         = 80
 	reditelBeamWindupMS    = 700
 
 	chargeCost       = 40
-	chargeDashDist   = 8.8
+	chargeDashDist   = 10.2
 	chargeHitRadius  = 1.2
 	chargeDamageBase = 16
 	chargeDamageStep = 12
-	chargeStunMS     = 1000
+	chargeStunMS     = 850
 
 	V_COST = 55
 	X_COST = 45
 	Z_COST = 50
 
-	vBaseRadius = 5.7
-	vRadStep    = 0.22
+	vBaseRadius   = 5.7
+	vRadStep      = 0.22
+	vLifestealPct = 0.12
 
-	xStunBaseMS = 2000
-	xStunStepMS = 200
+	xStunBaseMS = 1700
+	xStunStepMS = 150
 
 	sofieTouchRange = 1.35
-	sofieHealHPPS   = 14.0
-	sofieHealManaPS = 18.0
+	sofieHealPctPS  = 0.05
 
 	playerRadius = 0.6
 
@@ -142,7 +147,9 @@ func manaCost(kind string) int {
 }
 
 func upgradeCost(kind string, _ int) int {
-	return 3
+	_ = kind
+	// Slightly cheaper upgrades after adding temporary buff pickups.
+	return 2
 }
 
 type vec2 struct {
@@ -151,29 +158,36 @@ type vec2 struct {
 }
 
 type playerState struct {
-	ID        uint64  `json:"id"`
-	Name      string  `json:"name"`
-	X         float64 `json:"x"`
-	Z         float64 `json:"z"`
-	Facing    float64 `json:"facing"`
-	HP        int     `json:"hp"`
-	Mana      int     `json:"mana"`
-	MaxHP     int     `json:"maxHp"`
-	MaxMana   int     `json:"maxMana"`
-	Gold      int     `json:"gold"`
-	UpHP      int     `json:"upHp"`
-	UpMana    int     `json:"upMana"`
-	UpQ       int     `json:"upQ"`
-	UpW       int     `json:"upW"`
-	UpE       int     `json:"upE"`
-	UpR       int     `json:"upR"`
-	UpC       int     `json:"upC"`
-	UpV       int     `json:"upV"`
-	UpX       int     `json:"upX"`
-	UpZ       int     `json:"upZ"`
-	Alive     bool    `json:"alive"`
-	StunUntil int64   `json:"stunUntil,omitempty"`
-	RespawnT  int64   `json:"respawnAt,omitempty"` // unix ms; 0 if alive
+	ID        uint64            `json:"id"`
+	Name      string            `json:"name"`
+	Model     int               `json:"model,omitempty"`
+	X         float64           `json:"x"`
+	Z         float64           `json:"z"`
+	Facing    float64           `json:"facing"`
+	HP        int               `json:"hp"`
+	Mana      int               `json:"mana"`
+	MaxHP     int               `json:"maxHp"`
+	MaxMana   int               `json:"maxMana"`
+	Gold      int               `json:"gold"`
+	UpHP      int               `json:"upHp"`
+	UpMana    int               `json:"upMana"`
+	UpQ       int               `json:"upQ"`
+	UpW       int               `json:"upW"`
+	UpE       int               `json:"upE"`
+	UpR       int               `json:"upR"`
+	UpC       int               `json:"upC"`
+	UpV       int               `json:"upV"`
+	UpX       int               `json:"upX"`
+	UpZ       int               `json:"upZ"`
+	Buffs     []playerBuffState `json:"buffs,omitempty"`
+	Alive     bool              `json:"alive"`
+	StunUntil int64             `json:"stunUntil,omitempty"`
+	RespawnT  int64             `json:"respawnAt,omitempty"` // unix ms; 0 if alive
+}
+
+type playerBuffState struct {
+	Kind  string `json:"kind"`
+	Until int64  `json:"until"`
 }
 
 type pickup struct {
@@ -278,7 +292,8 @@ type cMsg struct {
 }
 
 type cJoin struct {
-	Name string `json:"name"`
+	Name  string `json:"name"`
+	Model int    `json:"model,omitempty"`
 }
 
 type cState struct {
@@ -400,6 +415,7 @@ type ArenaHub struct {
 	pickups    map[uint64]*pickup
 	nextPickID atomic.Uint64
 	lastPickup time.Time
+	lastBuff   time.Time
 	lastTick   time.Time
 	respawnAt  map[uint64]int64
 	auras      map[uint64]*playerAura
@@ -415,6 +431,7 @@ type playerAura struct {
 	NextTick int64
 	Radius   float64
 	Damage   int
+	HealAcc  float64
 }
 
 type stateUpdate struct {
@@ -562,6 +579,7 @@ func (h *ArenaHub) Run() {
 			h.regen(dt)
 			h.expirePickups(now)
 			h.maybeSpawnPickup(now)
+			h.maybeSpawnBuffPickup(now)
 			h.updateNPCs(now, dt)
 			h.updateAuras(now.UnixMilli())
 			h.updateNPCProjectiles(dt)
@@ -594,6 +612,7 @@ func (h *ArenaHub) updateAuras(nowMS int64) {
 			continue
 		}
 		a.NextTick = nowMS + 500
+		healGain := 0.0
 
 		hitR2Player := (a.Radius + playerRadius) * (a.Radius + playerRadius)
 		for id, t := range h.clients {
@@ -604,6 +623,7 @@ func (h *ArenaHub) updateAuras(nowMS int64) {
 			tAlive := t.state.Alive
 			tx := t.state.X
 			tz := t.state.Z
+			hpBefore := t.state.HP
 			t.mu.Unlock()
 			if !tAlive {
 				continue
@@ -612,6 +632,12 @@ func (h *ArenaHub) updateAuras(nowMS int64) {
 			dz := tz - oz
 			if dx*dx+dz*dz <= hitR2Player {
 				h.applyHit(hitEvent{shooter: owner, target: id, pid: 0, dmg: a.Damage})
+				t.mu.Lock()
+				hpAfter := t.state.HP
+				t.mu.Unlock()
+				if hpBefore > hpAfter {
+					healGain += float64(hpBefore-hpAfter) * vLifestealPct
+				}
 			}
 		}
 
@@ -632,7 +658,32 @@ func (h *ArenaHub) updateAuras(nowMS int64) {
 			dx := n.state.X - ox
 			dz := n.state.Z - oz
 			if dx*dx+dz*dz <= r*r {
+				hpBefore := n.state.HP
 				h.applyHit(hitEvent{shooter: owner, target: id, pid: 0, dmg: a.Damage})
+				hpAfter := n.state.HP
+				if hpBefore > hpAfter {
+					healGain += float64(hpBefore-hpAfter) * vLifestealPct
+				}
+			}
+		}
+
+		if healGain > 0 {
+			a.HealAcc += healGain
+			if a.HealAcc >= 1 {
+				add := int(a.HealAcc)
+				a.HealAcc -= float64(add)
+				c.mu.Lock()
+				if c.state.Alive {
+					maxHP := c.state.MaxHP
+					if maxHP <= 0 {
+						maxHP = startHP
+					}
+					c.state.HP += add
+					if c.state.HP > maxHP {
+						c.state.HP = maxHP
+					}
+				}
+				c.mu.Unlock()
 			}
 		}
 	}
@@ -666,8 +717,7 @@ func (h *ArenaHub) respawnPlayer(id uint64) {
 	c.state.Alive = true
 	c.state.StunUntil = 0
 	c.state.RespawnT = 0
-	c.state.X = (rand.Float64()*2 - 1) * (mapHalfX - 2)
-	c.state.Z = (rand.Float64()*2 - 1) * (mapHalfZ - 2)
+	c.state.X, c.state.Z = randomPlayerSpawnPos()
 	c.hpAcc = 0
 	c.manaAcc = 0
 }
@@ -1095,25 +1145,33 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 							} else {
 								n.vx = 0
 								n.vz = 0
-								n.allyHPAcc += sofieHealHPPS * dt
-								n.allyManaAcc += sofieHealManaPS * dt
+								maxHP := tc.state.MaxHP
+								if maxHP <= 0 {
+									maxHP = startHP
+								}
+								maxMana := tc.state.MaxMana
+								if maxMana <= 0 {
+									maxMana = startMana
+								}
+								n.allyHPAcc += float64(maxHP) * sofieHealPctPS * dt
+								n.allyManaAcc += float64(maxMana) * sofieHealPctPS * dt
 								if n.allyHPAcc >= 1 {
 									add := int(n.allyHPAcc)
 									n.allyHPAcc -= float64(add)
-									if tc.state.HP < tc.state.MaxHP {
+									if tc.state.HP < maxHP {
 										tc.state.HP += add
-										if tc.state.HP > tc.state.MaxHP {
-											tc.state.HP = tc.state.MaxHP
+										if tc.state.HP > maxHP {
+											tc.state.HP = maxHP
 										}
 									}
 								}
 								if n.allyManaAcc >= 1 {
 									add := int(n.allyManaAcc)
 									n.allyManaAcc -= float64(add)
-									if tc.state.Mana < tc.state.MaxMana {
+									if tc.state.Mana < maxMana {
 										tc.state.Mana += add
-										if tc.state.Mana > tc.state.MaxMana {
-											tc.state.Mana = tc.state.MaxMana
+										if tc.state.Mana > maxMana {
+											tc.state.Mana = maxMana
 										}
 									}
 								}
@@ -1332,9 +1390,11 @@ func (h *ArenaHub) expirePickups(now time.Time) {
 }
 
 func (h *ArenaHub) regen(dt float64) {
+	nowMS := time.Now().UnixMilli()
 	for _, c := range h.clients {
 		c.mu.Lock()
 		if c.state.Alive {
+			h.recomputePlayerDerivedStatsLocked(c, nowMS)
 			maxHP := c.state.MaxHP
 			if maxHP <= 0 {
 				maxHP = startHP
@@ -1381,9 +1441,11 @@ func (h *ArenaHub) maybeSpawnPickup(now time.Time) {
 	if now.Sub(h.lastPickup) < pickupSpawnMS*time.Millisecond {
 		return
 	}
+
 	h.lastPickup = now
-	kindRoll := rand.Intn(10)
+
 	kind := "gold"
+	kindRoll := rand.Intn(10)
 	if kindRoll == 0 {
 		kind = "hp"
 	} else if kindRoll <= 4 {
@@ -1392,11 +1454,34 @@ func (h *ArenaHub) maybeSpawnPickup(now time.Time) {
 	h.spawnPickup(kind, 0, 0, false, now)
 }
 
+func (h *ArenaHub) maybeSpawnBuffPickup(now time.Time) {
+	if now.Sub(h.lastBuff) < buffSpawnMS*time.Millisecond {
+		return
+	}
+	buffOnGround := 0
+	for _, p := range h.pickups {
+		if p.Kind == "buff_speed" || p.Kind == "buff_hp" || p.Kind == "buff_mana" || p.Kind == "buff_dmg" {
+			buffOnGround++
+		}
+	}
+	if buffOnGround >= maxBuffPickups {
+		return
+	}
+	h.lastBuff = now
+	buffKinds := []string{"buff_speed", "buff_hp", "buff_mana", "buff_dmg"}
+	kind := buffKinds[rand.Intn(len(buffKinds))]
+	h.spawnPickupValueWithLife(kind, 0, 0, false, now, 1, buffPickupLifeMS)
+}
+
 func (h *ArenaHub) spawnPickup(kind string, x, z float64, exact bool, now time.Time) {
 	h.spawnPickupValue(kind, x, z, exact, now, 0)
 }
 
 func (h *ArenaHub) spawnPickupValue(kind string, x, z float64, exact bool, now time.Time, value int) {
+	h.spawnPickupValueWithLife(kind, x, z, exact, now, value, pickupLifeMS)
+}
+
+func (h *ArenaHub) spawnPickupValueWithLife(kind string, x, z float64, exact bool, now time.Time, value int, lifeMS int64) {
 	id := h.nextPickID.Add(1)
 	nowMS := now.UnixMilli()
 	px, pz := x, z
@@ -1414,7 +1499,7 @@ func (h *ArenaHub) spawnPickupValue(kind string, x, z float64, exact bool, now t
 		X:         clamp(px, -mapHalfX+1, mapHalfX-1),
 		Z:         clamp(pz, -mapHalfZ+1, mapHalfZ-1),
 		SpawnAtMS: nowMS,
-		ExpireMS:  nowMS + pickupLifeMS,
+		ExpireMS:  nowMS + lifeMS,
 	}
 	h.pickups[id] = p
 }
@@ -1473,7 +1558,7 @@ func (h *ArenaHub) applyCast(ev castEvent) {
 
 	if ev.kind == "v" {
 		radius := vBaseRadius + float64(upV)*vRadStep
-		dmg := 8 + upV*5
+		dmg := 10 + upV*8
 		nowMS := time.Now().UnixMilli()
 		h.auras[owner] = &playerAura{
 			Owner:    owner,
@@ -1612,6 +1697,8 @@ func (h *ArenaHub) applyPickup(ev pickEvent) {
 			v = goldAmount
 		}
 		c.state.Gold += v
+	case "buff_speed", "buff_hp", "buff_mana", "buff_dmg":
+		h.applyBuffPickupLocked(c, p.Kind, time.Now().UnixMilli())
 	}
 }
 
@@ -1663,18 +1750,10 @@ func (h *ArenaHub) applyUpgrade(ev upgradeEvent) {
 	switch ev.kind {
 	case "hp":
 		c.state.UpHP++
-		c.state.MaxHP += hpUpgradeDelta
 		c.state.HP += hpUpgradeDelta
-		if c.state.HP > c.state.MaxHP {
-			c.state.HP = c.state.MaxHP
-		}
 	case "mana":
 		c.state.UpMana++
-		c.state.MaxMana += manaUpgradeDelta
 		c.state.Mana += manaUpgradeDelta
-		if c.state.Mana > c.state.MaxMana {
-			c.state.Mana = c.state.MaxMana
-		}
 	case "q":
 		c.state.UpQ++
 	case "w":
@@ -1691,6 +1770,14 @@ func (h *ArenaHub) applyUpgrade(ev upgradeEvent) {
 		c.state.UpX++
 	case "z":
 		c.state.UpZ++
+	}
+
+	h.recomputePlayerDerivedStatsLocked(c, time.Now().UnixMilli())
+	if c.state.HP > c.state.MaxHP {
+		c.state.HP = c.state.MaxHP
+	}
+	if c.state.Mana > c.state.MaxMana {
+		c.state.Mana = c.state.MaxMana
 	}
 }
 
@@ -1799,6 +1886,15 @@ func (h *ArenaHub) stunExtraFromUpgrade(shooter uint64) int64 {
 }
 
 func (h *ArenaHub) applyHit(ev hitEvent) {
+	nowMS := time.Now().UnixMilli()
+	hasDmgBuff := false
+	if shooter := h.clients[ev.shooter]; shooter != nil {
+		shooter.mu.Lock()
+		h.recomputePlayerDerivedStatsLocked(shooter, nowMS)
+		hasDmgBuff = hasActiveBuff(shooter.state.Buffs, "dmg", nowMS)
+		shooter.mu.Unlock()
+	}
+
 	target, ok := h.clients[ev.target]
 	if !ok {
 		n, isNPC := h.npcs[ev.target]
@@ -1808,6 +1904,9 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 		dmg := ev.dmg
 		if dmg <= 0 {
 			dmg = hitDamage
+		}
+		if hasDmgBuff {
+			dmg = int(math.Round(float64(dmg) * (1.0 + buffStatPct)))
 		}
 		maxNPC := n.state.MaxHP
 		if maxNPC <= 0 {
@@ -1840,7 +1939,7 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 			if n.state.Kind == "pes" {
 				h.spawnPickup("gold", n.state.X, n.state.Z, true, time.Now())
 			} else if n.state.Kind == "namestek" {
-				coins := 1 + rand.Intn(3)
+				coins := 1 + rand.Intn(2)
 				for i := 0; i < coins; i++ {
 					ang := rand.Float64() * 2 * math.Pi
 					rad := 0.6 + rand.Float64()*1.6
@@ -1849,7 +1948,7 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 					h.spawnPickup("gold", px, pz, true, time.Now())
 				}
 			} else if n.state.Kind == "reditel" {
-				coins := 2 + rand.Intn(4)
+				coins := 2 + rand.Intn(3)
 				for i := 0; i < coins; i++ {
 					ang := rand.Float64() * 2 * math.Pi
 					rad := 0.6 + rand.Float64()*1.6
@@ -1872,10 +1971,14 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 		target.mu.Unlock()
 		return
 	}
+	h.recomputePlayerDerivedStatsLocked(target, nowMS)
 	kind := h.projectileKind(ev.shooter, ev.pid)
 	dmg := ev.dmg
 	if dmg <= 0 {
 		dmg = hitDamage
+	}
+	if hasDmgBuff {
+		dmg = int(math.Round(float64(dmg) * (1.0 + buffStatPct)))
 	}
 	maxHP := target.state.MaxHP
 	if maxHP <= 0 {
@@ -1895,6 +1998,7 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 		target.state.Alive = false
 		target.state.RespawnT = now.UnixMilli() + respawnMS
 		target.state.StunUntil = 0
+		target.state.Buffs = nil
 		dropGold = target.state.Gold
 		target.state.Gold = 0
 	} else if kind == "x" {
@@ -1981,16 +2085,19 @@ func (h *ArenaHub) ServeWS(w http.ResponseWriter, r *http.Request) {
 		state: playerState{
 			ID:      id,
 			Name:    "player",
-			X:       (rand.Float64()*2 - 1) * (mapHalfX - 2),
-			Z:       (rand.Float64()*2 - 1) * (mapHalfZ - 2),
+			X:       0,
+			Z:       0,
 			HP:      startHP,
 			Mana:    startMana,
 			MaxHP:   startHP,
 			MaxMana: startMana,
+			UpQ:     1,
 			Gold:    0,
 			Alive:   true,
 		},
 	}
+	c.state.X, c.state.Z = randomPlayerSpawnPos()
+	h.recomputePlayerDerivedStatsLocked(c, time.Now().UnixMilli())
 
 	// Send welcome before registering, so the client knows its id.
 	welcome := sMsg{Type: "welcome", Data: sWelcome{
@@ -2062,8 +2169,10 @@ func (c *client) readLoop() {
 				continue
 			}
 			name := sanitizeName(j.Name)
+			model := sanitizeModel(j.Model)
 			c.mu.Lock()
 			c.state.Name = name
+			c.state.Model = model
 			c.mu.Unlock()
 
 		case "state":
@@ -2149,6 +2258,100 @@ func sanitizeName(s string) string {
 	return string(out)
 }
 
+func sanitizeModel(m int) int {
+	if m < 0 || m > 3 {
+		return 0
+	}
+	return m
+}
+
+func hasActiveBuff(buffs []playerBuffState, kind string, nowMS int64) bool {
+	for _, b := range buffs {
+		if b.Kind == kind && b.Until > nowMS {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *ArenaHub) recomputePlayerDerivedStatsLocked(c *client, nowMS int64) {
+	if c == nil {
+		return
+	}
+	active := c.state.Buffs[:0]
+	for _, b := range c.state.Buffs {
+		if b.Until > nowMS {
+			active = append(active, b)
+		}
+	}
+	c.state.Buffs = active
+
+	maxHP := startHP + c.state.UpHP*hpUpgradeDelta
+	maxMana := startMana + c.state.UpMana*manaUpgradeDelta
+	if hasActiveBuff(c.state.Buffs, "hp", nowMS) {
+		maxHP = int(math.Round(float64(maxHP) * (1.0 + buffStatPct)))
+	}
+	if hasActiveBuff(c.state.Buffs, "mana", nowMS) {
+		maxMana = int(math.Round(float64(maxMana) * (1.0 + buffStatPct)))
+	}
+	if maxHP < 1 {
+		maxHP = 1
+	}
+	if maxMana < 0 {
+		maxMana = 0
+	}
+	c.state.MaxHP = maxHP
+	c.state.MaxMana = maxMana
+	if c.state.HP > c.state.MaxHP {
+		c.state.HP = c.state.MaxHP
+	}
+	if c.state.Mana > c.state.MaxMana {
+		c.state.Mana = c.state.MaxMana
+	}
+}
+
+func (h *ArenaHub) applyBuffPickupLocked(c *client, pickupKind string, nowMS int64) {
+	if c == nil {
+		return
+	}
+	kind := ""
+	switch pickupKind {
+	case "buff_speed":
+		kind = "speed"
+	case "buff_hp":
+		kind = "hp"
+	case "buff_mana":
+		kind = "mana"
+	case "buff_dmg":
+		kind = "dmg"
+	default:
+		return
+	}
+
+	oldMaxHP := c.state.MaxHP
+	oldMaxMana := c.state.MaxMana
+	until := nowMS + buffDurationMS
+	updated := false
+	for i := range c.state.Buffs {
+		if c.state.Buffs[i].Kind == kind {
+			c.state.Buffs[i].Until = until
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		c.state.Buffs = append(c.state.Buffs, playerBuffState{Kind: kind, Until: until})
+	}
+
+	h.recomputePlayerDerivedStatsLocked(c, nowMS)
+	if kind == "hp" && c.state.HP == oldMaxHP {
+		c.state.HP = c.state.MaxHP
+	}
+	if kind == "mana" && c.state.Mana == oldMaxMana {
+		c.state.Mana = c.state.MaxMana
+	}
+}
+
 func pickDifferentLine(lines []string, last string) string {
 	if len(lines) == 0 {
 		return ""
@@ -2171,4 +2374,47 @@ func clamp(v, lo, hi float64) float64 {
 		return hi
 	}
 	return v
+}
+
+type spawnRect struct {
+	minX float64
+	maxX float64
+	minZ float64
+	maxZ float64
+}
+
+var playerSpawnNoGo = []spawnRect{
+	{minX: -9.0, maxX: -7.0, minZ: -4.0, maxZ: -2.0},
+	{minX: 7.0, maxX: 9.0, minZ: 2.0, maxZ: 4.0},
+	{minX: -2.0, maxX: 2.0, minZ: 5.5, maxZ: 6.5},
+	{minX: -2.0, maxX: 2.0, minZ: -6.5, maxZ: -5.5},
+	{minX: -14.5, maxX: -13.5, minZ: 3.0, maxZ: 7.0},
+	{minX: 13.5, maxX: 14.5, minZ: -7.0, maxZ: -3.0},
+}
+
+func randomPlayerSpawnPos() (float64, float64) {
+	const spawnMargin = 0.65
+	for i := 0; i < 80; i++ {
+		x := (rand.Float64()*2 - 1) * (mapHalfX - 2)
+		z := (rand.Float64()*2 - 1) * (mapHalfZ - 2)
+		if !isBlockedSpawn(x, z, spawnMargin) {
+			return x, z
+		}
+	}
+	fallback := [][2]float64{{-24, -14}, {24, 14}, {-24, 14}, {24, -14}, {-18, 0}, {18, 0}}
+	for _, p := range fallback {
+		if !isBlockedSpawn(p[0], p[1], spawnMargin) {
+			return p[0], p[1]
+		}
+	}
+	return 0, 0
+}
+
+func isBlockedSpawn(x, z, r float64) bool {
+	for _, b := range playerSpawnNoGo {
+		if x > b.minX-r && x < b.maxX+r && z > b.minZ-r && z < b.maxZ+r {
+			return true
+		}
+	}
+	return false
 }
