@@ -34,8 +34,8 @@ const (
 	hpRegenPerSec   = 2.0
 	manaRegenPerSec = 8.0
 
-	pickupSpawnMS     = 9000
-	maxPickups        = 3
+	pickupSpawnMS     = 6000
+	maxPickups        = 5
 	pickupAmount      = 20
 	goldAmount        = 1
 	pickupRadius      = 1.2 // pickup-collection distance

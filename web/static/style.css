@@ -5,8 +5,6 @@
   --fg: #eef5ff;
   --muted: #a7bbde;
   --accent: #56d9ff;
-  --danger: #ff5d7a;
-  --good: #52f7a0;
 }
 
 * { box-sizing: border-box; }
@@ -351,8 +349,9 @@ html, body {
   position: absolute;
   left: calc(50% + 298px);
   bottom: 16px;
-  width: 286px;
-  min-height: 212px;
+  --sb-cell-size: 50px;
+  width: max-content;
+  min-height: 0;
   background: rgba(18, 31, 54, 0.88);
   border: 1px solid #6f8bc1;
   border-radius: 8px;
@@ -367,7 +366,8 @@ html, body {
 .hud .spellbook-panel .sb-head {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .hud .spellbook-panel .sb-close {
@@ -376,19 +376,24 @@ html, body {
   background: rgba(30, 47, 79, 0.95);
   color: #dceeff;
   font: inherit;
-  font-size: 11px;
-  padding: 3px 7px;
+  font-size: 14px;
+  line-height: 1;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   cursor: pointer;
 }
 
 .hud .spellbook-panel .sb-meta {
   font-size: 12px;
   color: #cce6ff;
+  white-space: nowrap;
+  margin-right: auto;
 }
 
 .hud .spellbook-panel .sb-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, var(--sb-cell-size));
   gap: 6px;
 }
 
@@ -410,8 +415,12 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-height: 52px;
+  width: var(--sb-cell-size);
+  min-width: var(--sb-cell-size);
+  min-height: var(--sb-cell-size);
+  aspect-ratio: 1 / 1;
   justify-content: space-between;
+  overflow: hidden;
 }
 
 .hud .spellbook-panel .sb-spell.sb-upgrade {
@@ -451,10 +460,14 @@ html, body {
 }
 
 .hud .spellbook-panel .sb-name {
-  flex: 1;
+  display: block;
+  width: 100%;
   font-size: 10px;
   color: #e4f1ff;
   text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .hud .spellbook-panel .sb-lvl {
@@ -465,6 +478,7 @@ html, body {
 
 @media (max-width: 980px) {
   .hud .spellbook-panel {
+    --sb-cell-size: 46px;
     left: 12px;
     right: 12px;
     bottom: 100px;
