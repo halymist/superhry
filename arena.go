@@ -34,47 +34,61 @@ const (
 	hpRegenPerSec   = 2.0
 	manaRegenPerSec = 8.0
 
-	pickupSpawnMS     = 6000
-	maxPickups        = 5
-	pickupAmount      = 20
-	goldAmount        = 1
-	pickupRadius      = 1.2 // pickup-collection distance
-	pickupLifeMS      = 30000
-	npcSayMS          = 7000
-	npcRespawnMS      = 5000
-	dogHP             = 90
-	dogAggroRange     = 11.0
-	dogDeaggroRng     = 16.0
-	dogTouchRange     = 1.15
-	dogTouchDmg       = 14
-	dogHitCDMS        = 900
-	dogChaseSpeed     = 4.7
-	dogWanderSpeed    = 2.45
-	reditelHP         = 900
-	reditelRegenPS    = 18.0
-	namestekTalkCDMS  = 10000
-	sofieFollowRange  = 10.0
-	sofieFollowDrop   = 16.0
-	sofieFollowSpeed  = 1.85
-	sofieFollowMS     = 5000
-	sofieFollowCDMS   = 7000
-	namestekLootRange = 6.0
-	namestekLootSpeed = 1.55
-
-	reditelMissileSpeed = 12.0
-	reditelMissileRange = 10.0
-	reditelMissileRad   = 0.22
-	reditelMissileDmg   = 9
-	reditelShotCDMS     = 140
-	reditelBurstMS      = 3000
-	reditelPauseMS      = 1700
-	reditelGoldDropMS   = 12000
-	reditelBeamCDMS     = 12000
-	reditelBeamSpeed    = 78.0
-	reditelBeamRange    = 44.0
-	reditelBeamRad      = 0.78
-	reditelBeamDmg      = 80
-	reditelBeamWindupMS = 700
+	pickupSpawnMS          = 6000
+	maxPickups             = 5
+	pickupAmount           = 20
+	goldAmount             = 1
+	pickupRadius           = 1.2 // pickup-collection distance
+	pickupLifeMS           = 30000
+	npcSayMS               = 7000
+	npcRespawnMS           = 5000
+	dogHP                  = 90
+	dogAggroRange          = 11.0
+	dogDeaggroRng          = 16.0
+	dogTouchRange          = 1.15
+	dogTouchDmg            = 14
+	dogHitCDMS             = 900
+	dogChaseSpeed          = 4.7
+	dogWanderSpeed         = 2.45
+	namestekHP             = 320
+	namestekRegenPS        = 8.0
+	namestekAggroRng       = 12.0
+	namestekDeaggroRng     = 18.0
+	namestekTouchRange     = 1.18
+	namestekTouchDmg       = 18
+	namestekHitCDMS        = 850
+	namestekChaseSpeed     = 3.6
+	namestekWanderSpeed    = 1.65
+	namestekChargeRange    = 9.4
+	namestekChargeMinRange = 2.0
+	namestekChargeSpeed    = 14.0
+	namestekChargeMS       = 280
+	namestekChargeCDMS     = 7000
+	namestekChargeHitR     = 1.28
+	namestekChargeDmg      = 26
+	namestekChargeStunMS   = 700
+	reditelHP              = 900
+	reditelRegenPS         = 18.0
+	namestekTalkCDMS       = 10000
+	sofieFollowRange       = 10.0
+	sofieFollowDrop        = 16.0
+	sofieFollowSpeed       = 1.85
+	sofieFollowMS          = 5000
+	sofieFollowCDMS        = 7000
+	reditelMissileSpeed    = 12.0
+	reditelMissileRange    = 10.0
+	reditelMissileRad      = 0.22
+	reditelMissileDmg      = 9
+	reditelShotCDMS        = 140
+	reditelBurstMS         = 3000
+	reditelPauseMS         = 1700
+	reditelGoldDropMS      = 12000
+	reditelBeamCDMS        = 12000
+	reditelBeamSpeed       = 78.0
+	reditelBeamRange       = 44.0
+	reditelBeamRad         = 0.78
+	reditelBeamDmg         = 80
+	reditelBeamWindupMS    = 700
 
 	chargeCost       = 40
 	chargeDashDist   = 8.8
@@ -232,25 +246,28 @@ type npcState struct {
 }
 
 type npcRuntime struct {
-	state       npcState
-	vx          float64
-	vz          float64
-	hpAcc       float64
-	nextDirMS   int64
-	nextSayMS   int64
-	nextHitMS   int64
-	nextDropMS  int64
-	nextBeamMS  int64
-	beamFireMS  int64
-	beamDX      float64
-	beamDZ      float64
-	burstEndMS  int64
-	pauseToMS   int64
-	followToMS  int64
-	aggroID     uint64
-	stunUntilMS int64
-	allyHPAcc   float64
-	allyManaAcc float64
+	state         npcState
+	vx            float64
+	vz            float64
+	hpAcc         float64
+	nextDirMS     int64
+	nextSayMS     int64
+	nextHitMS     int64
+	nextDropMS    int64
+	nextBeamMS    int64
+	beamFireMS    int64
+	beamDX        float64
+	beamDZ        float64
+	burstEndMS    int64
+	nextChargeMS  int64
+	chargeEndMS   int64
+	chargeHitDone bool
+	pauseToMS     int64
+	followToMS    int64
+	aggroID       uint64
+	stunUntilMS   int64
+	allyHPAcc     float64
+	allyManaAcc   float64
 }
 
 // --- inbound client messages ---
@@ -461,9 +478,10 @@ func NewArenaHub() *ArenaHub {
 func (h *ArenaHub) initNPCs() {
 	now := time.Now().UnixMilli()
 	h.npcs[1001] = &npcRuntime{
-		state:     npcState{ID: 1001, Kind: "namestek", Name: "Náměstek", X: -6, Z: 4, Facing: 0, Scale: 1.0, Alive: true},
-		nextDirMS: now + 1200,
-		nextSayMS: now + 3000,
+		state:        npcState{ID: 1001, Kind: "namestek", Name: "Náměstek", X: -6, Z: 4, Facing: 0, Scale: 1.0, HP: namestekHP, MaxHP: namestekHP, Alive: true},
+		nextDirMS:    now + 1200,
+		nextSayMS:    now + 3000,
+		nextChargeMS: now + 2500,
 	}
 	h.npcs[1002] = &npcRuntime{
 		state:      npcState{ID: 1002, Kind: "reditel", Name: "Ředitel", X: 10, Z: -8, Facing: 0, Scale: 1.0, HP: reditelHP, MaxHP: reditelHP, Alive: true},
@@ -601,12 +619,14 @@ func (h *ArenaHub) updateAuras(nowMS int64) {
 			if !n.state.Alive {
 				continue
 			}
-			if n.state.Kind != "pes" && n.state.Kind != "reditel" {
+			if n.state.Kind != "pes" && n.state.Kind != "reditel" && n.state.Kind != "namestek" {
 				continue
 			}
 			nrad := 0.6
 			if n.state.Kind == "reditel" {
 				nrad = 1.05
+			} else if n.state.Kind == "namestek" {
+				nrad = 0.72
 			}
 			r := a.Radius + nrad
 			dx := n.state.X - ox
@@ -673,6 +693,13 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 					n.state.HP = dogHP
 					n.state.MaxHP = dogHP
 				}
+				if n.state.Kind == "namestek" {
+					n.state.HP = namestekHP
+					n.state.MaxHP = namestekHP
+					n.nextChargeMS = nowMS + 2200
+					n.chargeEndMS = 0
+					n.chargeHitDone = false
+				}
 				if n.state.Kind == "reditel" {
 					n.state.HP = reditelHP
 					n.state.MaxHP = reditelHP
@@ -695,6 +722,25 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 			continue
 		}
 		n.state.StunUntil = 0
+
+		if n.state.Kind == "namestek" {
+			if n.state.MaxHP <= 0 {
+				n.state.MaxHP = namestekHP
+			}
+			if n.state.HP < n.state.MaxHP {
+				n.hpAcc += namestekRegenPS * dt
+				if n.hpAcc >= 1 {
+					add := int(n.hpAcc)
+					n.hpAcc -= float64(add)
+					n.state.HP += add
+					if n.state.HP > n.state.MaxHP {
+						n.state.HP = n.state.MaxHP
+					}
+				}
+			} else {
+				n.hpAcc = 0
+			}
+		}
 
 		if n.state.Kind == "reditel" {
 			if n.state.MaxHP <= 0 {
@@ -722,37 +768,8 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 		if n.state.Kind == "pes" {
 			speed = dogWanderSpeed
 		}
-
 		if n.state.Kind == "namestek" {
-			var best *pickup
-			bestD2 := namestekLootRange * namestekLootRange
-			for _, p := range h.pickups {
-				if p.Kind != "hp" && p.Kind != "mana" && p.Kind != "gold" {
-					continue
-				}
-				dx := p.X - n.state.X
-				dz := p.Z - n.state.Z
-				d2 := dx*dx + dz*dz
-				if d2 <= bestD2 {
-					bestD2 = d2
-					best = p
-				}
-			}
-			if best != nil {
-				dx := best.X - n.state.X
-				dz := best.Z - n.state.Z
-				d := math.Hypot(dx, dz)
-				if d <= pickupRadius+0.35 {
-					delete(h.pickups, best.ID)
-					n.vx = 0
-					n.vz = 0
-				} else if d > 0.001 {
-					n.vx = dx / d * namestekLootSpeed
-					n.vz = dz / d * namestekLootSpeed
-					n.state.Facing = math.Atan2(n.vx, n.vz)
-					n.nextDirMS = nowMS + 350
-				}
-			}
+			speed = namestekWanderSpeed
 		}
 
 		if n.state.Kind == "reditel" {
@@ -900,18 +917,21 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 
 			if !hasTarget {
 				n.aggroID = 0
+				n.state.Say = ""
+				n.state.SayUntil = 0
 				if closestID != 0 && closestD2 <= dogAggroRange*dogAggroRange {
 					n.aggroID = closestID
 					hasTarget = true
-					if nowMS >= n.nextSayMS {
-						n.state.Say = pickDifferentLine(dogLines, n.state.Say)
-						n.state.SayUntil = nowMS + npcSayMS
-						n.nextSayMS = nowMS + 12000 + int64(rand.Intn(6000))
-					}
+					n.nextSayMS = nowMS
 				}
 			}
 
 			if hasTarget {
+				if nowMS >= n.nextSayMS {
+					n.state.Say = pickDifferentLine(dogLines, n.state.Say)
+					n.state.SayUntil = nowMS + npcSayMS
+					n.nextSayMS = nowMS + 9000 + int64(rand.Intn(4000))
+				}
 				tc := h.clients[n.aggroID]
 				if tc != nil {
 					tc.mu.Lock()
@@ -932,6 +952,110 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 						if d <= dogTouchRange && nowMS >= n.nextHitMS {
 							n.nextHitMS = nowMS + dogHitCDMS
 							h.applyHit(hitEvent{shooter: n.state.ID, target: tid, pid: 0, dmg: dogTouchDmg})
+						}
+					}
+				}
+			} else if nowMS >= n.nextDirMS {
+				ang := rand.Float64() * math.Pi * 2
+				n.vx = math.Sin(ang) * speed
+				n.vz = math.Cos(ang) * speed
+				n.state.Facing = math.Atan2(n.vx, n.vz)
+				n.nextDirMS = nowMS + 1400 + int64(rand.Intn(2600))
+			}
+		} else if n.state.Kind == "namestek" {
+			closestID := uint64(0)
+			closestD2 := math.MaxFloat64
+			for _, c := range h.clients {
+				c.mu.Lock()
+				alive := c.state.Alive
+				px := c.state.X
+				pz := c.state.Z
+				pid := c.id
+				c.mu.Unlock()
+				if !alive {
+					continue
+				}
+				dx := px - n.state.X
+				dz := pz - n.state.Z
+				d2 := dx*dx + dz*dz
+				if d2 < closestD2 {
+					closestD2 = d2
+					closestID = pid
+				}
+			}
+
+			hasTarget := false
+			if n.aggroID != 0 {
+				if tc, ok := h.clients[n.aggroID]; ok {
+					tc.mu.Lock()
+					tAlive := tc.state.Alive
+					tx := tc.state.X
+					tz := tc.state.Z
+					tc.mu.Unlock()
+					if tAlive {
+						dx := tx - n.state.X
+						dz := tz - n.state.Z
+						if dx*dx+dz*dz <= namestekDeaggroRng*namestekDeaggroRng {
+							hasTarget = true
+						}
+					}
+				}
+			}
+
+			if !hasTarget {
+				n.aggroID = 0
+				n.state.Say = ""
+				n.state.SayUntil = 0
+				if closestID != 0 && closestD2 <= namestekAggroRng*namestekAggroRng {
+					n.aggroID = closestID
+					hasTarget = true
+					n.nextSayMS = nowMS
+				}
+			}
+
+			if hasTarget {
+				if nowMS >= n.nextSayMS {
+					n.state.Say = pickDifferentLine(namestekLines, n.state.Say)
+					n.state.SayUntil = nowMS + npcSayMS
+					n.nextSayMS = nowMS + 9000 + int64(rand.Intn(5000))
+				}
+				tc := h.clients[n.aggroID]
+				if tc != nil {
+					tc.mu.Lock()
+					tx := tc.state.X
+					tz := tc.state.Z
+					tid := tc.id
+					tAlive := tc.state.Alive
+					tc.mu.Unlock()
+					if tAlive {
+						dx := tx - n.state.X
+						dz := tz - n.state.Z
+						d := math.Hypot(dx, dz)
+						if d > 0.001 {
+							n.state.Facing = math.Atan2(dx, dz)
+						}
+
+						if n.chargeEndMS > nowMS {
+							if !n.chargeHitDone && d <= namestekChargeHitR {
+								n.chargeHitDone = true
+								n.nextHitMS = nowMS + namestekHitCDMS
+								h.applyHit(hitEvent{shooter: n.state.ID, target: tid, pid: 0, dmg: namestekChargeDmg})
+								h.applyStunPlayer(tid, namestekChargeStunMS)
+							}
+						} else {
+							n.chargeHitDone = false
+							if d <= namestekTouchRange && nowMS >= n.nextHitMS {
+								n.nextHitMS = nowMS + namestekHitCDMS
+								h.applyHit(hitEvent{shooter: n.state.ID, target: tid, pid: 0, dmg: namestekTouchDmg})
+							} else if nowMS >= n.nextChargeMS && d >= namestekChargeMinRange && d <= namestekChargeRange {
+								n.vx = dx / d * namestekChargeSpeed
+								n.vz = dz / d * namestekChargeSpeed
+								n.chargeEndMS = nowMS + namestekChargeMS
+								n.nextChargeMS = nowMS + namestekChargeCDMS + int64(rand.Intn(1200))
+							} else if d > 0.001 {
+								n.vx = dx / d * namestekChaseSpeed
+								n.vz = dz / d * namestekChaseSpeed
+							}
 						}
 					}
 				}
@@ -1032,13 +1156,7 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 						n.aggroID = bestID
 						n.followToMS = nowMS + sofieFollowMS
 						n.pauseToMS = n.followToMS + sofieFollowCDMS
-						if n.state.SayUntil <= 0 || nowMS >= n.state.SayUntil {
-							n.state.Say = pickDifferentLine(sofieLines, n.state.Say)
-							n.state.SayUntil = nowMS + npcSayMS
-							n.nextSayMS = nowMS + 6000 + int64(rand.Intn(5000))
-						} else {
-							n.nextSayMS = n.state.SayUntil + 2200
-						}
+						n.nextSayMS = nowMS
 					}
 				}
 
@@ -1053,6 +1171,8 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 		} else if n.state.Kind == "reditel" && n.beamFireMS > nowMS {
 			n.vx = 0
 			n.vz = 0
+		} else if n.state.Kind == "namestek" && n.chargeEndMS > nowMS {
+			// keep active charge velocity
 		} else if nowMS >= n.nextDirMS {
 			ang := rand.Float64() * math.Pi * 2
 			n.vx = math.Sin(ang) * speed
@@ -1076,37 +1196,6 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 		if n.state.SayUntil > 0 && nowMS >= n.state.SayUntil {
 			n.state.Say = ""
 			n.state.SayUntil = 0
-		}
-
-		if n.state.Kind == "namestek" && nowMS >= n.nextSayMS {
-			if n.state.Say != "" && n.state.SayUntil > nowMS {
-				n.nextSayMS = n.state.SayUntil + namestekTalkCDMS
-				continue
-			}
-			near := false
-			for _, c := range h.clients {
-				c.mu.Lock()
-				alive := c.state.Alive
-				px := c.state.X
-				pz := c.state.Z
-				c.mu.Unlock()
-				if !alive {
-					continue
-				}
-				dx := px - n.state.X
-				dz := pz - n.state.Z
-				if dx*dx+dz*dz <= 14*14 {
-					near = true
-					break
-				}
-			}
-			if near {
-				n.state.Say = pickDifferentLine(namestekLines, n.state.Say)
-				n.state.SayUntil = nowMS + npcSayMS
-				n.nextSayMS = nowMS + namestekTalkCDMS + int64(rand.Intn(3000))
-			} else {
-				n.nextSayMS = nowMS + 4500
-			}
 		}
 
 	}
@@ -1425,12 +1514,14 @@ func (h *ArenaHub) applyCast(ev castEvent) {
 		if !n.state.Alive {
 			continue
 		}
-		if n.state.Kind != "pes" && n.state.Kind != "reditel" {
+		if n.state.Kind != "pes" && n.state.Kind != "reditel" && n.state.Kind != "namestek" {
 			continue
 		}
 		nrad := 0.6
 		if n.state.Kind == "reditel" {
 			nrad = 1.05
+		} else if n.state.Kind == "namestek" {
+			nrad = 0.72
 		}
 		r := chargeHitRadius + nrad
 		if pointSegmentDist2(n.state.X, n.state.Z, sx, sz, ex, ez) <= r*r {
@@ -1711,7 +1802,7 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 	target, ok := h.clients[ev.target]
 	if !ok {
 		n, isNPC := h.npcs[ev.target]
-		if !isNPC || !n.state.Alive || (n.state.Kind != "pes" && n.state.Kind != "reditel") {
+		if !isNPC || !n.state.Alive || (n.state.Kind != "pes" && n.state.Kind != "reditel" && n.state.Kind != "namestek") {
 			return
 		}
 		dmg := ev.dmg
@@ -1723,6 +1814,9 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 			if n.state.Kind == "reditel" {
 				maxNPC = reditelHP
 				n.state.MaxHP = reditelHP
+			} else if n.state.Kind == "namestek" {
+				maxNPC = namestekHP
+				n.state.MaxHP = namestekHP
 			} else {
 				maxNPC = dogHP
 				n.state.MaxHP = dogHP
@@ -1745,6 +1839,15 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 			n.stunUntilMS = 0
 			if n.state.Kind == "pes" {
 				h.spawnPickup("gold", n.state.X, n.state.Z, true, time.Now())
+			} else if n.state.Kind == "namestek" {
+				coins := 1 + rand.Intn(3)
+				for i := 0; i < coins; i++ {
+					ang := rand.Float64() * 2 * math.Pi
+					rad := 0.6 + rand.Float64()*1.6
+					px := n.state.X + math.Sin(ang)*rad
+					pz := n.state.Z + math.Cos(ang)*rad
+					h.spawnPickup("gold", px, pz, true, time.Now())
+				}
 			} else if n.state.Kind == "reditel" {
 				coins := 2 + rand.Intn(4)
 				for i := 0; i < coins; i++ {

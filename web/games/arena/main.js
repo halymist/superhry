@@ -15,7 +15,7 @@ const Q_RADIUS     = 0.24;
 const Q_DAMAGE     = 10;
 const Q_COOLDOWN_MS = 5600;
 const Q_COST       = 35;
-const Q_BURST_MS = 900;
+const Q_BURST_MS = 1100;
 const Q_BURST_INTERVAL_MS = 130;
 
 // Ranged auto-attack
@@ -107,6 +107,7 @@ const SPELL_DEFS = {
 // pickups
 const PICKUP_RADIUS = 0.6;
 const DOG_MAX_HP = 90;
+const NAMESTEK_MAX_HP = 320;
 const REDITEL_MAX_HP = 720;
 const REDITEL_BEAM_WARN_MS = 700;
 const REDITEL_BEAM_WARN_RANGE = 44.0;
@@ -540,6 +541,7 @@ function makeNPCMesh(n) {
   const g = new THREE.Group();
   const isReditel = n.kind === 'reditel';
   const isDog = n.kind === 'pes';
+  const isSofie = n.kind === 'sofie';
   if (isDog) {
     const bodyMat = new THREE.MeshStandardMaterial({ color: 0x8c6a45, roughness: 0.7, metalness: 0.02, emissive: 0x3d2a18, emissiveIntensity: 0.2 });
     const headMat = new THREE.MeshStandardMaterial({ color: 0xa67b4f, roughness: 0.65, metalness: 0.02 });
@@ -587,6 +589,29 @@ function makeNPCMesh(n) {
     );
     face.position.set(0, 1.7, 0.62);
     g.add(face);
+  } else if (isSofie) {
+    const dressMat = new THREE.MeshStandardMaterial({ color: 0x84b6ff, roughness: 0.58, metalness: 0.03, emissive: 0x335b95, emissiveIntensity: 0.16 });
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.46, 1.05, 16), dressMat);
+    torso.position.y = 0.94;
+    g.add(torso);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 14, 11), new THREE.MeshStandardMaterial({ color: 0xf2dccf, roughness: 0.64 }));
+    head.position.set(0, 1.58, 0.2);
+    g.add(head);
+    const hairMat = new THREE.MeshStandardMaterial({ color: 0x3f2217, roughness: 0.78 });
+    const hairCap = new THREE.Mesh(new THREE.SphereGeometry(0.27, 14, 10), hairMat);
+    hairCap.scale.set(1.04, 0.74, 1.05);
+    hairCap.position.set(0, 1.72, 0.12);
+    g.add(hairCap);
+    const pony = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.05, 0.55, 10), hairMat);
+    pony.position.set(0, 1.48, -0.22);
+    pony.rotation.x = 0.46;
+    g.add(pony);
+    const face = new THREE.Mesh(
+      new THREE.SphereGeometry(0.13, 12, 9),
+      new THREE.MeshStandardMaterial({ color: 0xf8fbff, emissive: 0x8adfff, emissiveIntensity: 0.2 })
+    );
+    face.position.set(0, 1.58, 0.48);
+    g.add(face);
   } else {
     const color = 0x86c2ff;
     const body = new THREE.Mesh(
@@ -615,6 +640,11 @@ function makeNPCMesh(n) {
   } else if (isReditel) {
     const hpSp = makeHpSprite();
     hpSp.position.y = 2.35;
+    g.add(hpSp);
+    g.userData.hpSprite = hpSp;
+  } else if (n.kind === 'namestek') {
+    const hpSp = makeHpSprite();
+    hpSp.position.y = 2.15;
     g.add(hpSp);
     g.userData.hpSprite = hpSp;
   }
@@ -658,8 +688,8 @@ function updateNPCsFromSnapshot(snap) {
     obj.mesh.scale.setScalar(n.scale || 1);
     obj.mesh.visible = obj.alive;
     setNameSprite(obj.mesh.userData.nameSprite, n.name || n.kind, '#e6f2ff');
-    if ((obj.kind === 'pes' || obj.kind === 'reditel') && obj.mesh.userData.hpSprite) {
-      const fallbackMax = obj.kind === 'reditel' ? REDITEL_MAX_HP : DOG_MAX_HP;
+    if ((obj.kind === 'pes' || obj.kind === 'reditel' || obj.kind === 'namestek') && obj.mesh.userData.hpSprite) {
+      const fallbackMax = obj.kind === 'reditel' ? REDITEL_MAX_HP : (obj.kind === 'namestek' ? NAMESTEK_MAX_HP : DOG_MAX_HP);
       const maxHp = obj.maxHp > 0 ? obj.maxHp : fallbackMax;
       setHpSprite(obj.mesh.userData.hpSprite, obj.hp, maxHp);
       obj.mesh.userData.hpSprite.visible = obj.alive;
@@ -1859,8 +1889,8 @@ function refreshProjectileCollisionTargets() {
 
   for (const [nid, n] of npcs) {
     if (!n.alive) continue;
-    if (n.kind === 'pes' || n.kind === 'reditel') {
-      const rad = n.kind === 'reditel' ? 1.05 : 0.6;
+    if (n.kind === 'pes' || n.kind === 'reditel' || n.kind === 'namestek') {
+      const rad = n.kind === 'reditel' ? 1.05 : (n.kind === 'namestek' ? 0.72 : 0.6);
       projectileDogTargets.push({ id: Number(nid), x: n.mesh.position.x, z: n.mesh.position.z, rad });
     } else {
       projectileBlockers.push({ id: Number(nid), x: n.mesh.position.x, z: n.mesh.position.z, rad: 0.72 });
