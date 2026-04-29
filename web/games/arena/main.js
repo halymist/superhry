@@ -7,15 +7,15 @@ import * as THREE from 'three';
 const MOVE_SPEED   = 7.2;   // u/s
 
 // Q skillshot (Mystic Shot)
-const Q_SPEED_START = 19.0;
-const Q_SPEED_MAX   = 21.0;
+const Q_SPEED_START = 27.0;
+const Q_SPEED_MAX   = 31.0;
 const Q_ACCEL       = 0.0;
 const Q_RANGE      = 19.0;
 const Q_RADIUS     = 0.24;
 const Q_DAMAGE     = 10;
 const Q_COOLDOWN_MS = 5600;
 const Q_COST       = 35;
-const Q_BURST_MS = 1400;
+const Q_BURST_MS = 900;
 const Q_BURST_INTERVAL_MS = 130;
 
 // Ranged auto-attack
@@ -41,7 +41,7 @@ const R_CAST_MS    = 1000;
 // C dash (Charge)
 const C_COOLDOWN_MS = 7000;
 const C_COST        = 40;
-const C_DASH_DIST   = 6.5;
+const C_DASH_DIST   = 8.8;
 
 const PLAYER_RADIUS = 0.6;
 
@@ -57,7 +57,8 @@ const E_COST   = 50;
 const W_SPEED_MULT = 1.3;
 const W_DURATION_MS = 8000;
 const W_COST = 30;
-const UP_MAX = 5;
+const HP_MANA_UP_MAX = 10;
+const SPELL_UP_MAX = 5;
 const C_DASH_MS     = 220;
 
 // camera pan
@@ -68,8 +69,17 @@ const CAM_PAN_SPEED = 24.0;
 const V_COOLDOWN_MS = 13000;
 const V_COST        = 55;
 const V_DURATION_MS = 5000;
-const V_BASE_RADIUS = 1.9;
+const V_BASE_RADIUS = 5.7;
 const V_RADIUS_STEP = 0.22;
+
+const X_COOLDOWN_MS = 9000;
+const X_COST = 45;
+const X_SPEED_START = 22.0;
+const X_SPEED_MAX = 26.0;
+const X_ACCEL = 0.0;
+const X_RANGE = 22.0;
+const X_RADIUS = 0.4;
+const X_DAMAGE = 12;
 
 const SPELL_DEFS = {
   q: { id: 'q', name: 'Salva' },
@@ -78,6 +88,7 @@ const SPELL_DEFS = {
   r: { id: 'r', name: 'Strela' },
   c: { id: 'c', name: 'Naraz' },
   v: { id: 'v', name: 'Pole' },
+  x: { id: 'x', name: 'Omraceni' },
 };
 
 // pickups
@@ -111,21 +122,24 @@ function myAbilityStats() {
 
 function refreshSpellbookUi() {
   if (!spellbookPanel) return;
-  upHpEl.textContent = `${myUp.hp}/${UP_MAX}`;
-  upManaEl.textContent = `${myUp.mana}/${UP_MAX}`;
-  upQEl.textContent = `${myUp.q}/${UP_MAX}`;
-  upWEl.textContent = `${myUp.w}/${UP_MAX}`;
-  upEEl.textContent = `${myUp.e}/${UP_MAX}`;
-  upREl.textContent = `${myUp.r}/${UP_MAX}`;
-  upCEl.textContent = `${myUp.c}/${UP_MAX}`;
-  upVEl.textContent = `${myUp.v}/${UP_MAX}`;
-  const lvlByKind = { hp: myUp.hp, mana: myUp.mana, q: myUp.q, w: myUp.w, e: myUp.e, r: myUp.r, c: myUp.c, v: myUp.v };
+  upHpEl.textContent = `${myUp.hp}/${HP_MANA_UP_MAX}`;
+  upManaEl.textContent = `${myUp.mana}/${HP_MANA_UP_MAX}`;
+  upQEl.textContent = `${myUp.q}/${SPELL_UP_MAX}`;
+  upWEl.textContent = `${myUp.w}/${SPELL_UP_MAX}`;
+  upEEl.textContent = `${myUp.e}/${SPELL_UP_MAX}`;
+  upREl.textContent = `${myUp.r}/${SPELL_UP_MAX}`;
+  upCEl.textContent = `${myUp.c}/${SPELL_UP_MAX}`;
+  upVEl.textContent = `${myUp.v}/${SPELL_UP_MAX}`;
+  upXEl.textContent = `${myUp.x}/${SPELL_UP_MAX}`;
+  const lvlByKind = { hp: myUp.hp, mana: myUp.mana, q: myUp.q, w: myUp.w, e: myUp.e, r: myUp.r, c: myUp.c, v: myUp.v, x: myUp.x };
+  const capByKind = { hp: HP_MANA_UP_MAX, mana: HP_MANA_UP_MAX, q: SPELL_UP_MAX, w: SPELL_UP_MAX, e: SPELL_UP_MAX, r: SPELL_UP_MAX, c: SPELL_UP_MAX, v: SPELL_UP_MAX, x: SPELL_UP_MAX };
   for (const inline of spellbookUpgradeInline) {
     const kind = inline.dataset.upgrade;
     const lvl = lvlByKind[kind] || 0;
     const cost = upgradeCost(kind, lvl);
-    inline.title = lvl >= UP_MAX ? 'MAX' : `Cena: ${cost} Prémie`;
-    inline.classList.toggle('disabled', lvl >= UP_MAX || myGold < cost);
+    const maxLvl = capByKind[kind] || SPELL_UP_MAX;
+    inline.title = lvl >= maxLvl ? 'MAX' : `Cena: ${cost} Prémie`;
+    inline.classList.toggle('disabled', lvl >= maxLvl || myGold < cost);
   }
 
   for (const card of spellCards) {
@@ -145,6 +159,7 @@ function poolRadiusForLevel(level) {
 function tryCastPool() {
   const me = players.get(myId);
   if (!me || !me.alive) return;
+  if (Date.now() < myStunUntil) return;
   if ((myUp.v || 0) <= 0) return;
   const now = performance.now();
   if (now < vReadyAt) return;
@@ -189,6 +204,7 @@ const upEEl = document.getElementById('u-e');
 const upREl = document.getElementById('u-r');
 const upCEl = document.getElementById('u-c');
 const upVEl = document.getElementById('u-v');
+const upXEl = document.getElementById('u-x');
 const rCastWrap = document.getElementById('r-cast-wrap');
 const rCastFill = document.getElementById('r-cast-fill');
 
@@ -621,7 +637,8 @@ let startHP = 100;
 let startMana = 100;
 let myMana = 100; // optimistic local prediction; corrected by snapshots
 let myGold = 0;
-let myUp = { hp: 0, mana: 0, q: 0, w: 0, e: 0, r: 0, c: 0, v: 0 };
+let myUp = { hp: 0, mana: 0, q: 0, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0 };
+let myStunUntil = 0;
 
 const players = new Map(); // id -> { mesh, name, hp, alive, snapshots: [{t,x,z,facing}], lastSeen }
 const projectiles = []; // {pid, owner, x, z, vx, vz, dist, max, mesh, hitDone}
@@ -641,6 +658,7 @@ let wActiveUntil = 0;
 let eReadyAt = 0;
 let rReadyAt = 0;
 let cReadyAt = 0;
+let xReadyAt = 0;
 let aaReadyAt = 0;
 let rCastUntil = 0;
 let qMode = false;
@@ -784,7 +802,8 @@ function onMessage(raw) {
       startMana = m.data.startMana || 100;
       myMana = startMana;
       myGold = 0;
-      myUp = { hp: 0, mana: 0, q: 0, w: 0, e: 0, r: 0, c: 0, v: 0 };
+      myUp = { hp: 0, mana: 0, q: 0, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0 };
+      myStunUntil = 0;
       refreshSpellbookUi();
       break;
 
@@ -847,6 +866,8 @@ function handleSnapshot(snap) {
     pl.upR = p.upR || 0;
     pl.upC = p.upC || 0;
     pl.upV = p.upV || 0;
+    pl.upX = p.upX || 0;
+    pl.stunUntil = p.stunUntil || 0;
     pl.respawnAt = p.respawnAt || 0;
     pl.alive = p.alive;
     if (pl.mesh.userData.hpSprite) {
@@ -901,7 +922,9 @@ function handleSnapshot(snap) {
       r: me.upR || 0,
       c: me.upC || 0,
       v: me.upV || 0,
+      x: me.upX || 0,
     };
+    myStunUntil = me.stunUntil || 0;
     mpText.textContent = `${Math.round(myMana)}/${maxMana}`;
     mpFill.style.width = `${Math.max(0, myMana) / maxMana * 100}%`;
     refreshSpellbookUi();
@@ -1019,6 +1042,10 @@ function castEquipped(slotKey) {
   }
   if (spellKind === 'v') {
     tryCastPool();
+    return;
+  }
+  if (spellKind === 'x') {
+    tryFireX();
   }
 }
 
@@ -1029,17 +1056,20 @@ function spellCooldownRatio(kind, now, statsNow) {
   if (kind === 'r') return Math.max(0, Math.min(1, Math.max(0, rReadyAt - now) / R_COOLDOWN_MS));
   if (kind === 'c') return Math.max(0, Math.min(1, Math.max(0, cReadyAt - now) / C_COOLDOWN_MS));
   if (kind === 'v') return Math.max(0, Math.min(1, Math.max(0, vReadyAt - now) / V_COOLDOWN_MS));
+  if (kind === 'x') return Math.max(0, Math.min(1, Math.max(0, xReadyAt - now) / X_COOLDOWN_MS));
   return 0;
 }
 
 function canCastSpell(kind, alive, now) {
   if (!alive || !kind) return false;
+  if (Date.now() < myStunUntil) return false;
   if (kind === 'q') return myMana >= Q_COST && now >= qReadyAt && now >= qBurstUntil;
   if (kind === 'w') return myMana >= W_COST && now >= wActiveUntil;
   if (kind === 'e') return myMana >= E_COST && now >= eReadyAt;
   if (kind === 'r') return myMana >= R_COST && now >= rReadyAt && now >= rCastUntil;
   if (kind === 'c') return myUp.c > 0 && myMana >= C_COST && now >= cReadyAt;
   if (kind === 'v') return myUp.v > 0 && myMana >= V_COST && now >= vReadyAt;
+  if (kind === 'x') return myUp.x > 0 && myMana >= X_COST && now >= xReadyAt;
   return false;
 }
 
@@ -1087,7 +1117,8 @@ for (const inline of spellbookUpgradeInline) {
     const kind = inline.dataset.upgrade;
     if (!kind) return;
     const lvl = myUp[kind] || 0;
-    if (lvl >= UP_MAX) return;
+    const maxLvl = (kind === 'hp' || kind === 'mana') ? HP_MANA_UP_MAX : SPELL_UP_MAX;
+    if (lvl >= maxLvl) return;
     if (myGold < upgradeCost(kind, lvl)) return;
     send({ type: 'upgrade', data: { kind } });
   });
@@ -1201,6 +1232,8 @@ function setupSpawn() {
   wActiveUntil = 0;
   cReadyAt = 0;
   vReadyAt = 0;
+  xReadyAt = 0;
+  myStunUntil = 0;
   chargeAnim.active = false;
   qMode = false;
   rMode = false;
@@ -1249,6 +1282,7 @@ function tryEnterRMode() {
 function tryCastW() {
   const me = players.get(myId);
   if (!me || !me.alive) return;
+  if (Date.now() < myStunUntil) return;
   const now = performance.now();
   if (now < wActiveUntil) return;
   if (myMana < W_COST) return;
@@ -1261,6 +1295,7 @@ function tryCastW() {
 function tryTeleport() {
   const me = players.get(myId);
   if (!me || !me.alive) return;
+  if (Date.now() < myStunUntil) return;
   const now = performance.now();
   if (now < eReadyAt) return;
   if (myMana < E_COST) return;
@@ -1303,6 +1338,7 @@ function tryTeleport() {
 function tryFireQ() {
   const me = players.get(myId);
   if (!me || !me.alive) return;
+  if (Date.now() < myStunUntil) return;
   const now = performance.now();
   if (now < qBurstUntil) return;
   if (now < qReadyAt) return;
@@ -1319,6 +1355,7 @@ function tryFireQ() {
 function tryFireR() {
   const me = players.get(myId);
   if (!me || !me.alive) return;
+  if (Date.now() < myStunUntil) return;
   const now = performance.now();
   if (now < rReadyAt) return;
   if (rCastUntil > now) return;
@@ -1339,6 +1376,7 @@ function tryFireR() {
 function tryCastCharge() {
   const me = players.get(myId);
   if (!me || !me.alive) return;
+  if (Date.now() < myStunUntil) return;
   if ((myUp.c || 0) <= 0) return;
   const now = performance.now();
   if (now < cReadyAt) return;
@@ -1366,9 +1404,24 @@ function tryCastCharge() {
   send({ type: 'state', data: { x: chargeAnim.toX, z: chargeAnim.toZ, facing: myFacing } });
 }
 
+function tryFireX() {
+  const me = players.get(myId);
+  if (!me || !me.alive) return;
+  if (Date.now() < myStunUntil) return;
+  if ((myUp.x || 0) <= 0) return;
+  const now = performance.now();
+  if (now < xReadyAt) return;
+  if (myMana < X_COST) return;
+
+  xReadyAt = now + X_COOLDOWN_MS;
+  myMana = Math.max(0, myMana - X_COST);
+  fireProjectile('x');
+}
+
 function tryAutoAttack() {
   const me = players.get(myId);
   if (!me || !me.alive) return;
+  if (Date.now() < myStunUntil) return;
   const now = performance.now();
   if (now < aaReadyAt) return;
   aaReadyAt = now + AA_COOLDOWN_MS;
@@ -1410,6 +1463,8 @@ function projectileSpec(kind, boost = null) {
       return { radius: b.rRadius, startSpeed: R_SPEED_START, maxSpeed: R_SPEED_MAX, accel: R_ACCEL, range: R_RANGE, dmg: b.rDmg, pierce: true };
     case 'aa':
       return { radius: AA_RADIUS, startSpeed: AA_SPEED_START, maxSpeed: AA_SPEED_MAX, accel: AA_ACCEL, range: AA_RANGE, dmg: AA_DAMAGE, pierce: false };
+    case 'x':
+      return { radius: X_RADIUS, startSpeed: X_SPEED_START, maxSpeed: X_SPEED_MAX, accel: X_ACCEL, range: X_RANGE, dmg: X_DAMAGE, pierce: false };
     default:
       return { radius: Q_RADIUS, startSpeed: Q_SPEED_START, maxSpeed: Q_SPEED_MAX, accel: Q_ACCEL, range: Q_RANGE, dmg: b.qDmg, pierce: false };
   }
@@ -1422,14 +1477,21 @@ function spawnProjectile(p) {
   if (kind === 'reditel') color = 0xffc46b;
   else if (kind === 'reditel_beam') color = 0xff6d8a;
   else if (kind === 'r')      color = p.owner === myId ? 0xff7df6 : 0xff5dc8;
+  else if (kind === 'x') color = p.owner === myId ? 0x89ffde : 0x7dcfff;
   else if (kind === 'aa') color = p.owner === myId ? 0xa6f0ff : 0xfff0a0;
   else                    color = p.owner === myId ? 0xffe48a : 0xff9b66;
 
+  const geom = kind === 'x'
+    ? new THREE.BoxGeometry(0.95, 0.3, 0.55)
+    : new THREE.SphereGeometry(spec.radius, 12, 9);
   const mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(spec.radius, 12, 9),
+    geom,
     new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: (kind === 'r' || kind === 'reditel_beam') ? 1.1 : 0.85 })
   );
   mesh.position.set(p.ox, 1.0, p.oz);
+  if (kind === 'x') {
+    mesh.rotation.y = Math.atan2(p.dx, p.dz);
+  }
   scene.add(mesh);
 
   if (kind === 'r' || kind === 'reditel_beam') {
@@ -1486,14 +1548,14 @@ function updateBeamWarnings(now) {
 }
 
 function spawnPoolEffect(ownerId, radius, durationMS) {
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(Math.max(0.6, radius-0.2), radius, 36),
-    new THREE.MeshBasicMaterial({ color: 0x76ffd1, transparent: true, opacity: 0.42, side: THREE.DoubleSide })
+  const disc = new THREE.Mesh(
+    new THREE.CircleGeometry(radius, 48),
+    new THREE.MeshBasicMaterial({ color: 0x76ffd1, transparent: true, opacity: 0.34, side: THREE.DoubleSide })
   );
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.06;
-  scene.add(ring);
-  activePools.push({ ownerId, ring, startAt: performance.now(), endAt: performance.now() + durationMS });
+  disc.rotation.x = -Math.PI / 2;
+  disc.position.y = 0.06;
+  scene.add(disc);
+  activePools.push({ ownerId, ring: disc, startAt: performance.now(), endAt: performance.now() + durationMS });
 }
 
 function updatePools(now) {
@@ -1763,6 +1825,7 @@ function loop(t) {
 
   // local movement: right-click to move with immediate direction changes
   if (alive) {
+    const stunned = Date.now() < myStunUntil;
     if (chargeAnim.active) {
       const nowMs = performance.now();
       const k = Math.max(0, Math.min(1, (nowMs - chargeAnim.startAt) / Math.max(1, chargeAnim.endAt - chargeAnim.startAt)));
@@ -1776,7 +1839,11 @@ function loop(t) {
     const sprintActive = performance.now() < wActiveUntil;
     const moveSpeedNow = MOVE_SPEED * (sprintActive ? W_SPEED_MULT : 1);
     myVel.set(0, 0);
-    if (!chargeAnim.active && hasMoveTarget) {
+    if (stunned) {
+      hasMoveTarget = false;
+      myVel.set(0, 0);
+    }
+    if (!stunned && !chargeAnim.active && hasMoveTarget) {
       const dx = moveTarget.x - myPos.x;
       const dz = moveTarget.y - myPos.z;
       const dist = Math.hypot(dx, dz);

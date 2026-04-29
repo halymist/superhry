@@ -77,18 +77,27 @@ const (
 	reditelBeamWindupMS = 700
 
 	chargeCost       = 40
-	chargeDashDist   = 6.5
+	chargeDashDist   = 8.8
 	chargeHitRadius  = 1.2
 	chargeDamageBase = 16
 	chargeDamageStep = 12
+	chargeStunMS     = 1000
 
 	V_COST = 55
+	X_COST = 45
+
+	vBaseRadius = 5.7
+	vRadStep    = 0.22
+
+	xStunBaseMS = 2000
+	xStunStepMS = 200
 
 	playerRadius = 0.6
 
 	hpUpgradeDelta   = 20
 	manaUpgradeDelta = 20
-	maxUpgradeLevel  = 5
+	hpManaUpgradeMax = 10
+	spellUpgradeMax  = 5
 )
 
 func manaCost(kind string) int {
@@ -105,6 +114,8 @@ func manaCost(kind string) int {
 		return chargeCost
 	case "v":
 		return V_COST
+	case "x":
+		return X_COST
 	}
 	return 0
 }
@@ -119,26 +130,28 @@ type vec2 struct {
 }
 
 type playerState struct {
-	ID       uint64  `json:"id"`
-	Name     string  `json:"name"`
-	X        float64 `json:"x"`
-	Z        float64 `json:"z"`
-	Facing   float64 `json:"facing"`
-	HP       int     `json:"hp"`
-	Mana     int     `json:"mana"`
-	MaxHP    int     `json:"maxHp"`
-	MaxMana  int     `json:"maxMana"`
-	Gold     int     `json:"gold"`
-	UpHP     int     `json:"upHp"`
-	UpMana   int     `json:"upMana"`
-	UpQ      int     `json:"upQ"`
-	UpW      int     `json:"upW"`
-	UpE      int     `json:"upE"`
-	UpR      int     `json:"upR"`
-	UpC      int     `json:"upC"`
-	UpV      int     `json:"upV"`
-	Alive    bool    `json:"alive"`
-	RespawnT int64   `json:"respawnAt,omitempty"` // unix ms; 0 if alive
+	ID        uint64  `json:"id"`
+	Name      string  `json:"name"`
+	X         float64 `json:"x"`
+	Z         float64 `json:"z"`
+	Facing    float64 `json:"facing"`
+	HP        int     `json:"hp"`
+	Mana      int     `json:"mana"`
+	MaxHP     int     `json:"maxHp"`
+	MaxMana   int     `json:"maxMana"`
+	Gold      int     `json:"gold"`
+	UpHP      int     `json:"upHp"`
+	UpMana    int     `json:"upMana"`
+	UpQ       int     `json:"upQ"`
+	UpW       int     `json:"upW"`
+	UpE       int     `json:"upE"`
+	UpR       int     `json:"upR"`
+	UpC       int     `json:"upC"`
+	UpV       int     `json:"upV"`
+	UpX       int     `json:"upX"`
+	Alive     bool    `json:"alive"`
+	StunUntil int64   `json:"stunUntil,omitempty"`
+	RespawnT  int64   `json:"respawnAt,omitempty"` // unix ms; 0 if alive
 }
 
 type pickup struct {
@@ -210,22 +223,23 @@ type npcState struct {
 }
 
 type npcRuntime struct {
-	state      npcState
-	vx         float64
-	vz         float64
-	hpAcc      float64
-	nextDirMS  int64
-	nextSayMS  int64
-	nextHitMS  int64
-	nextDropMS int64
-	nextBeamMS int64
-	beamFireMS int64
-	beamDX     float64
-	beamDZ     float64
-	burstEndMS int64
-	pauseToMS  int64
-	followToMS int64
-	aggroID    uint64
+	state       npcState
+	vx          float64
+	vz          float64
+	hpAcc       float64
+	nextDirMS   int64
+	nextSayMS   int64
+	nextHitMS   int64
+	nextDropMS  int64
+	nextBeamMS  int64
+	beamFireMS  int64
+	beamDX      float64
+	beamDZ      float64
+	burstEndMS  int64
+	pauseToMS   int64
+	followToMS  int64
+	aggroID     uint64
+	stunUntilMS int64
 }
 
 // --- inbound client messages ---
@@ -269,7 +283,7 @@ type cPickup struct {
 }
 
 type cUpgrade struct {
-	Kind string `json:"kind"` // "hp","mana","q","w","e","r","c","v"
+	Kind string `json:"kind"` // "hp","mana","q","w","e","r","c","v","x"
 }
 
 // --- outbound server messages ---
@@ -361,6 +375,7 @@ type ArenaHub struct {
 	lastTick   time.Time
 	respawnAt  map[uint64]int64
 	auras      map[uint64]*playerAura
+	projKinds  map[uint64]map[uint64]string
 	npcs       map[uint64]*npcRuntime
 	npcProjs   map[uint64]*npcProjectile
 	nextNpcPID atomic.Uint64
@@ -426,6 +441,7 @@ func NewArenaHub() *ArenaHub {
 		lastTick:   time.Now(),
 		respawnAt:  make(map[uint64]int64),
 		auras:      make(map[uint64]*playerAura),
+		projKinds:  make(map[uint64]map[uint64]string),
 		npcs:       make(map[uint64]*npcRuntime),
 		npcProjs:   make(map[uint64]*npcProjectile),
 	}
@@ -472,6 +488,7 @@ func (h *ArenaHub) Run() {
 			if _, ok := h.clients[c.id]; ok {
 				delete(h.clients, c.id)
 				delete(h.auras, c.id)
+				delete(h.projKinds, c.id)
 				close(c.send)
 				h.broadcastJSON(sMsg{Type: "leave", Data: sLeave{ID: c.id}})
 			}
@@ -480,8 +497,11 @@ func (h *ArenaHub) Run() {
 			if c, ok := h.clients[u.id]; ok {
 				c.mu.Lock()
 				if c.state.Alive {
-					c.state.X = clamp(u.x, -mapHalfX, mapHalfX)
-					c.state.Z = clamp(u.z, -mapHalfZ, mapHalfZ)
+					nowMS := time.Now().UnixMilli()
+					if nowMS >= c.state.StunUntil {
+						c.state.X = clamp(u.x, -mapHalfX, mapHalfX)
+						c.state.Z = clamp(u.z, -mapHalfZ, mapHalfZ)
+					}
 					c.state.Facing = u.facing
 				}
 				c.mu.Unlock()
@@ -613,6 +633,7 @@ func (h *ArenaHub) respawnPlayer(id uint64) {
 	c.state.HP = c.state.MaxHP
 	c.state.Mana = c.state.MaxMana
 	c.state.Alive = true
+	c.state.StunUntil = 0
 	c.state.RespawnT = 0
 	c.state.X = (rand.Float64()*2 - 1) * (mapHalfX - 2)
 	c.state.Z = (rand.Float64()*2 - 1) * (mapHalfZ - 2)
@@ -635,6 +656,7 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 				n.nextDirMS = nowMS + 600
 				n.nextSayMS = nowMS + 2400
 				n.nextHitMS = 0
+				n.stunUntilMS = 0
 				n.hpAcc = 0
 				if n.state.Kind == "pes" {
 					n.state.HP = dogHP
@@ -646,6 +668,16 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 					n.nextBeamMS = nowMS + 7000
 					n.beamFireMS = 0
 				}
+			}
+			continue
+		}
+
+		if nowMS < n.stunUntilMS {
+			n.vx = 0
+			n.vz = 0
+			if n.state.SayUntil > 0 && nowMS >= n.state.SayUntil {
+				n.state.Say = ""
+				n.state.SayUntil = 0
 			}
 			continue
 		}
@@ -1277,13 +1309,17 @@ func (h *ArenaHub) applyCast(ev castEvent) {
 		c.mu.Unlock()
 		return
 	}
+	if ev.kind == "x" && c.state.UpX <= 0 {
+		c.mu.Unlock()
+		return
+	}
 	if c.state.Mana < cost {
 		c.mu.Unlock()
 		return
 	}
 	c.state.Mana -= cost
 
-	if ev.kind != "c" && ev.kind != "v" {
+	if ev.kind != "c" && ev.kind != "v" && ev.kind != "x" {
 		c.mu.Unlock()
 		return
 	}
@@ -1298,8 +1334,12 @@ func (h *ArenaHub) applyCast(ev castEvent) {
 	dz := math.Cos(facing)
 	c.mu.Unlock()
 
+	if ev.kind == "x" {
+		return
+	}
+
 	if ev.kind == "v" {
-		radius := 1.9 + float64(upV)*0.22
+		radius := vBaseRadius + float64(upV)*vRadStep
 		dmg := 6 + upV*4
 		nowMS := time.Now().UnixMilli()
 		h.auras[owner] = &playerAura{
@@ -1333,6 +1373,7 @@ func (h *ArenaHub) applyCast(ev castEvent) {
 		}
 		if pointSegmentDist2(tx, tz, sx, sz, ex, ez) <= hitR*hitR {
 			h.applyHit(hitEvent{shooter: ev.id, target: id, pid: 0, dmg: dmg})
+			h.applyStunPlayer(id, chargeStunMS)
 		}
 	}
 
@@ -1350,6 +1391,7 @@ func (h *ArenaHub) applyCast(ev castEvent) {
 		r := chargeHitRadius + nrad
 		if pointSegmentDist2(n.state.X, n.state.Z, sx, sz, ex, ez) <= r*r {
 			h.applyHit(hitEvent{shooter: ev.id, target: id, pid: 0, dmg: dmg})
+			h.applyStunNPC(id, chargeStunMS)
 		}
 	}
 }
@@ -1369,6 +1411,9 @@ func (h *ArenaHub) applyFire(ev fireEvent) {
 		return
 	}
 	c.state.Mana -= cost
+	if ev.kind != "q" {
+		h.registerProjectileKind(ev.shooter, ev.pid, ev.kind)
+	}
 	c.mu.Unlock()
 
 	h.broadcastJSON(sMsg{Type: "fire", Data: sFire{
@@ -1456,10 +1501,12 @@ func (h *ArenaHub) applyUpgrade(ev upgradeEvent) {
 		curLvl = c.state.UpC
 	case "v":
 		curLvl = c.state.UpV
+	case "x":
+		curLvl = c.state.UpX
 	default:
 		return
 	}
-	if curLvl >= maxUpgradeLevel {
+	if curLvl >= maxUpgradeForKind(ev.kind) {
 		return
 	}
 	cost := upgradeCost(ev.kind, curLvl)
@@ -1495,7 +1542,16 @@ func (h *ArenaHub) applyUpgrade(ev upgradeEvent) {
 		c.state.UpC++
 	case "v":
 		c.state.UpV++
+	case "x":
+		c.state.UpX++
 	}
+}
+
+func maxUpgradeForKind(kind string) int {
+	if kind == "hp" || kind == "mana" {
+		return hpManaUpgradeMax
+	}
+	return spellUpgradeMax
 }
 
 func chargeDamage(level int) int {
@@ -1529,6 +1585,71 @@ func pointSegmentDist2(px, pz, ax, az, bx, bz float64) float64 {
 	return dx*dx + dz*dz
 }
 
+func (h *ArenaHub) applyStunPlayer(id uint64, durMS int64) {
+	c, ok := h.clients[id]
+	if !ok {
+		return
+	}
+	nowMS := time.Now().UnixMilli()
+	c.mu.Lock()
+	if c.state.Alive {
+		until := nowMS + durMS
+		if until > c.state.StunUntil {
+			c.state.StunUntil = until
+		}
+	}
+	c.mu.Unlock()
+}
+
+func (h *ArenaHub) applyStunNPC(id uint64, durMS int64) {
+	n, ok := h.npcs[id]
+	if !ok || !n.state.Alive {
+		return
+	}
+	nowMS := time.Now().UnixMilli()
+	until := nowMS + durMS
+	if until > n.stunUntilMS {
+		n.stunUntilMS = until
+	}
+}
+
+func (h *ArenaHub) registerProjectileKind(shooter, pid uint64, kind string) {
+	if pid == 0 {
+		return
+	}
+	m, ok := h.projKinds[shooter]
+	if !ok {
+		m = make(map[uint64]string)
+		h.projKinds[shooter] = m
+	}
+	m[pid] = kind
+}
+
+func (h *ArenaHub) projectileKind(shooter, pid uint64) string {
+	if pid == 0 {
+		return ""
+	}
+	m := h.projKinds[shooter]
+	if m == nil {
+		return ""
+	}
+	return m[pid]
+}
+
+func (h *ArenaHub) stunExtraFromUpgrade(shooter uint64) int64 {
+	c := h.clients[shooter]
+	if c == nil {
+		return 0
+	}
+	c.mu.Lock()
+	lvl := c.state.UpX
+	c.mu.Unlock()
+	if lvl <= 0 {
+		return 0
+	}
+	return int64(lvl) * xStunStepMS
+}
+
 func (h *ArenaHub) applyHit(ev hitEvent) {
 	target, ok := h.clients[ev.target]
 	if !ok {
@@ -1554,6 +1675,7 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 			dmg = maxNPC
 		}
 		n.state.HP -= dmg
+		kind := h.projectileKind(ev.shooter, ev.pid)
 		killed := n.state.HP <= 0
 		if killed {
 			n.state.HP = 0
@@ -1562,9 +1684,12 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 			n.state.Say = ""
 			n.state.SayUntil = 0
 			n.hpAcc = 0
+			n.stunUntilMS = 0
 			if n.state.Kind == "pes" {
 				h.spawnPickup("gold", n.state.X, n.state.Z, true, time.Now())
 			}
+		} else if kind == "x" {
+			h.applyStunNPC(ev.target, xStunBaseMS+h.stunExtraFromUpgrade(ev.shooter))
 		}
 		h.broadcastJSON(sMsg{Type: "hit", Data: sHit{
 			Shooter: ev.shooter, Target: ev.target, PID: ev.pid,
@@ -1577,6 +1702,7 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 		target.mu.Unlock()
 		return
 	}
+	kind := h.projectileKind(ev.shooter, ev.pid)
 	dmg := ev.dmg
 	if dmg <= 0 {
 		dmg = hitDamage
@@ -1598,8 +1724,14 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 		target.state.HP = 0
 		target.state.Alive = false
 		target.state.RespawnT = now.UnixMilli() + respawnMS
+		target.state.StunUntil = 0
 		dropGold = target.state.Gold
 		target.state.Gold = 0
+	} else if kind == "x" {
+		until := now.UnixMilli() + xStunBaseMS + h.stunExtraFromUpgrade(ev.shooter)
+		if until > target.state.StunUntil {
+			target.state.StunUntil = until
+		}
 	}
 	hp := target.state.HP
 	target.mu.Unlock()
