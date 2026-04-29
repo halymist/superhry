@@ -47,7 +47,7 @@ const (
 	buffStatPct            = 0.20
 	npcSayMS               = 7000
 	npcRespawnMS           = 5000
-	dogHP                  = 90
+	dogHP                  = 120
 	dogAggroRange          = 11.0
 	dogDeaggroRng          = 16.0
 	dogTouchRange          = 1.15

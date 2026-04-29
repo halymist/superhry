@@ -12,7 +12,8 @@ const Q_SPEED_MAX   = 31.0;
 const Q_ACCEL       = 0.0;
 const Q_RANGE      = 19.0;
 const Q_RADIUS     = 0.24;
-const Q_DAMAGE     = 6;
+const Q_BASE_DAMAGE = 4;
+const Q_DAMAGE_STEP = 5;
 const Q_COOLDOWN_MS = 5600;
 const Q_COST       = 35;
 const Q_BURST_MS = 760;
@@ -108,7 +109,7 @@ const SPELL_DEFS = {
 
 // pickups
 const PICKUP_RADIUS = 0.6;
-const DOG_MAX_HP = 90;
+const DOG_MAX_HP = 120;
 const NAMESTEK_MAX_HP = 320;
 const REDITEL_MAX_HP = 720;
 const REDITEL_BEAM_WARN_MS = 700;
@@ -128,7 +129,7 @@ function upgradeCost(kind, lvl) {
 
 function myAbilityStats() {
   return {
-    qDmg: Q_DAMAGE + myUp.q * 8,
+    qDmg: Q_BASE_DAMAGE + Math.max(0, (myUp.q || 1) - 1) * Q_DAMAGE_STEP,
     wDuration: W_DURATION_MS + myUp.w * 1200,
     eRange: E_RANGE + myUp.e * 1.1,
     rRadius: R_RADIUS + myUp.r * 0.32,
@@ -290,6 +291,19 @@ function updateModelPickerUi() {
   for (const btn of charModelButtons) {
     const model = Number(btn.dataset.model || '0');
     btn.classList.toggle('active', model === selectedModel);
+  }
+}
+
+function applyPlayerModelVisual(pl, model) {
+  if (!pl || !pl.mesh) return;
+  const normModel = Number.isFinite(model) ? Math.max(0, Math.min(3, Math.trunc(model))) : 0;
+  const color = modelColor(normModel);
+  pl.model = normModel;
+  pl.color = color;
+  const body = pl.mesh.children && pl.mesh.children[0];
+  if (body && body.material) {
+    if (body.material.color) body.material.color.setHex(color);
+    if (body.material.emissive) body.material.emissive.setHex(color);
   }
 }
 
@@ -1014,7 +1028,10 @@ function handleSnapshot(snap) {
       players.set(p.id, pl);
       setNameSprite(mesh.userData.nameSprite, p.name, '#e6e8ee');
     }
-    pl.model = Number.isFinite(p.model) ? Math.max(0, Math.min(3, Math.trunc(p.model))) : 0;
+    const snapModel = Number.isFinite(p.model) ? Math.max(0, Math.min(3, Math.trunc(p.model))) : 0;
+    if (pl.model !== snapModel) {
+      applyPlayerModelVisual(pl, snapModel);
+    }
     if (pl.name !== p.name) {
       pl.name = p.name;
       setNameSprite(pl.mesh.userData.nameSprite, p.name, '#e6e8ee');
@@ -1745,7 +1762,7 @@ function fireProjectile(kind, dir = null) {
 }
 
 function projectileSpec(kind, boost = null) {
-  const b = boost || { qDmg: Q_DAMAGE, rRadius: R_RADIUS, rDmg: R_DAMAGE };
+  const b = boost || { qDmg: Q_BASE_DAMAGE, rRadius: R_RADIUS, rDmg: R_DAMAGE };
   switch (kind) {
     case 'reditel':
       return { radius: 0.22, startSpeed: 12.0, maxSpeed: 12.0, accel: 0, range: 10.0, dmg: 9, pierce: true };
