@@ -55,7 +55,7 @@ const (
 	dogHitCDMS             = 900
 	dogChaseSpeed          = 4.7
 	dogWanderSpeed         = 2.45
-	namestekHP             = 320
+	namestekHP             = 250
 	namestekRegenPS        = 11.0
 	namestekAggroRng       = 12.0
 	namestekDeaggroRng     = 18.0
@@ -72,7 +72,7 @@ const (
 	namestekChargeHitR     = 1.28
 	namestekChargeDmg      = 29
 	namestekChargeStunMS   = 550
-	reditelHP              = 900
+	reditelHP              = 600
 	reditelRegenPS         = 18.0
 	namestekTalkCDMS       = 10000
 	sofieFollowRange       = 10.0
