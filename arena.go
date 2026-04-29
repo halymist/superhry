@@ -44,7 +44,7 @@ const (
 	pickupLifeMS           = 30000
 	buffPickupLifeMS       = 30000
 	buffDurationMS         = 60000
-	buffStatPct            = 0.10
+	buffStatPct            = 0.20
 	npcSayMS               = 7000
 	npcRespawnMS           = 5000
 	dogHP                  = 90
@@ -108,7 +108,7 @@ const (
 
 	vBaseRadius   = 5.7
 	vRadStep      = 0.22
-	vLifestealPct = 0.12
+	vLifestealPct = 0.10
 
 	xStunBaseMS = 1700
 	xStunStepMS = 150
@@ -1470,7 +1470,8 @@ func (h *ArenaHub) maybeSpawnBuffPickup(now time.Time) {
 	h.lastBuff = now
 	buffKinds := []string{"buff_speed", "buff_hp", "buff_mana", "buff_dmg"}
 	kind := buffKinds[rand.Intn(len(buffKinds))]
-	h.spawnPickupValueWithLife(kind, 0, 0, false, now, 1, buffPickupLifeMS)
+	bx, bz := h.randomBuffSpawnPos()
+	h.spawnPickupValueWithLife(kind, bx, bz, true, now, 1, buffPickupLifeMS)
 }
 
 func (h *ArenaHub) spawnPickup(kind string, x, z float64, exact bool, now time.Time) {
@@ -1998,6 +1999,7 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 		target.state.Alive = false
 		target.state.RespawnT = now.UnixMilli() + respawnMS
 		target.state.StunUntil = 0
+		delete(h.auras, ev.target)
 		target.state.Buffs = nil
 		dropGold = target.state.Gold
 		target.state.Gold = 0
@@ -2417,4 +2419,31 @@ func isBlockedSpawn(x, z, r float64) bool {
 		}
 	}
 	return false
+}
+
+func (h *ArenaHub) randomBuffSpawnPos() (float64, float64) {
+	const npcSafe = 2.0
+	for i := 0; i < 80; i++ {
+		x := (rand.Float64()*2 - 1) * (mapHalfX - 2)
+		z := (rand.Float64()*2 - 1) * (mapHalfZ - 2)
+		if isBlockedSpawn(x, z, 0.5) {
+			continue
+		}
+		blocked := false
+		for _, n := range h.npcs {
+			if !n.state.Alive {
+				continue
+			}
+			dx := n.state.X - x
+			dz := n.state.Z - z
+			if dx*dx+dz*dz <= npcSafe*npcSafe {
+				blocked = true
+				break
+			}
+		}
+		if !blocked {
+			return x, z
+		}
+	}
+	return randomPlayerSpawnPos()
 }

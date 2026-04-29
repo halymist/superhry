@@ -215,6 +215,7 @@ const nameInput = document.getElementById('name-input');
 const nameGo    = document.getElementById('name-go');
 const charModelButtons = Array.from(document.querySelectorAll('.char-model'));
 const activeBuffsEl = document.getElementById('active-buffs');
+const buffStatusTextEl = document.getElementById('buff-status-text');
 
 const hpText = document.getElementById('hp-text');
 const hpFill = document.getElementById('hp-fill');
@@ -261,11 +262,17 @@ const slotLabelEls = {
 const equippedBySlot = { q: 'q', w: null, e: null, r: null };
 
 const BUFF_DEFS = {
-  speed: { key: 'speed', label: 'spd', color: '#4fc3ff' },
-  hp: { key: 'hp', label: 'hp', color: '#ff6e8a' },
-  mana: { key: 'mana', label: 'mp', color: '#6bb7ff' },
-  dmg: { key: 'dmg', label: 'dmg', color: '#ff9b5c' },
+  speed: { key: 'speed', label: 'Rychlost', desc: 'Rychlost pohybu +20%', color: '#4fc3ff' },
+  hp: { key: 'hp', label: 'Životy', desc: 'Max. životy +20%', color: '#ff6e8a' },
+  mana: { key: 'mana', label: 'Mana', desc: 'Max. mana +20%', color: '#6bb7ff' },
+  dmg: { key: 'dmg', label: 'Poškození', desc: 'Poškození +20%', color: '#ff9b5c' },
 };
+
+function normalizeBuffKind(kind) {
+  const k = String(kind || '').trim().toLowerCase();
+  if (!k) return '';
+  return k.startsWith('buff_') ? k.slice(5) : k;
+}
 
 const savedName = sessionStorage.getItem('superhry-name') || '';
 const savedModelRaw = Number(sessionStorage.getItem('superhry-model') || '0');
@@ -1028,6 +1035,7 @@ function handleSnapshot(snap) {
     pl.upV = p.upV || 0;
     pl.upX = p.upX || 0;
     pl.upZ = p.upZ || 0;
+    pl.buffs = Array.isArray(p.buffs) ? p.buffs : [];
     pl.stunUntil = p.stunUntil || 0;
     pl.respawnAt = p.respawnAt || 0;
     pl.alive = p.alive;
@@ -1160,19 +1168,20 @@ function setMyBuffs(buffs) {
   myBuffs.clear();
   const now = Date.now();
   for (const b of buffs || []) {
-    if (!b || !BUFF_DEFS[b.kind]) continue;
+    if (!b) continue;
+    const kind = normalizeBuffKind(b.kind);
+    if (!kind) continue;
     const until = Number(b.until) || 0;
-    if (until > now) myBuffs.set(b.kind, until);
+    if (until > now) myBuffs.set(kind, until);
   }
 }
 
 function hasMyBuff(kind) {
-  const until = myBuffs.get(kind) || 0;
+  const until = myBuffs.get(normalizeBuffKind(kind)) || 0;
   return until > Date.now();
 }
 
 function updateActiveBuffIcons(nowMs) {
-  if (!activeBuffsEl) return;
   const entries = [];
   for (const [kind, until] of myBuffs.entries()) {
     if (until > nowMs) entries.push({ kind, until });
@@ -1184,31 +1193,47 @@ function updateActiveBuffIcons(nowMs) {
     if (!seen.has(kind)) myBuffs.delete(kind);
   }
 
+  if (buffStatusTextEl) {
+    if (entries.length === 0) {
+      buffStatusTextEl.textContent = 'Žádné aktivní efekty';
+    } else {
+      buffStatusTextEl.textContent = entries
+        .map(e => {
+          const def = BUFF_DEFS[e.kind];
+          const secs = Math.ceil(Math.max(0, e.until - nowMs) / 1000);
+          if (!def) return `${e.kind}: ${secs}s`;
+          return `${def.label}: ${secs}s`;
+        })
+        .join(' | ');
+    }
+  }
+
+  if (!activeBuffsEl) return;
+
   activeBuffsEl.textContent = '';
   for (const e of entries) {
     const def = BUFF_DEFS[e.kind];
     if (!def) continue;
     const remainMS = Math.max(0, e.until - nowMs);
     const ratio = Math.max(0, Math.min(1, remainMS / 60000));
+    const secs = Math.ceil(remainMS / 1000);
 
-    const icon = document.createElement('div');
-    icon.className = 'buff-icon';
-    icon.style.background = def.color;
-    icon.title = `${def.label.toUpperCase()} ${Math.ceil(remainMS / 1000)}s`;
+    const row = document.createElement('div');
+    row.className = 'buff-row';
+    row.title = `${def.label}: ${def.desc}`;
 
-    const mask = document.createElement('div');
-    mask.className = 'buff-time-mask';
-    mask.style.top = '0';
-    mask.style.transform = `scaleY(${1 - ratio})`;
+    const fill = document.createElement('div');
+    fill.className = 'buff-row-fill';
+    fill.style.background = def.color;
+    fill.style.width = `${Math.max(0, Math.min(100, ratio * 100))}%`;
 
-    const txt = document.createElement('div');
-    txt.className = 'buff-time-text';
-    txt.textContent = `${Math.ceil(remainMS / 1000)}s`;
+    const text = document.createElement('div');
+    text.className = 'buff-row-text';
+    text.textContent = `${def.label} (${secs}s)`;
 
-    icon.textContent = def.label;
-    icon.appendChild(mask);
-    icon.appendChild(txt);
-    activeBuffsEl.appendChild(icon);
+    row.appendChild(fill);
+    row.appendChild(text);
+    activeBuffsEl.appendChild(row);
   }
 }
 
@@ -2120,6 +2145,35 @@ function spawnPickupMesh(pk) {
   const light = new THREE.PointLight(color, 0.5, 3);
   light.position.y = 0.5;
   g.add(light);
+
+  const buffIconByKind = {
+    buff_speed: 'SPD',
+    buff_hp: 'HP+',
+    buff_mana: 'MP+',
+    buff_dmg: 'DMG',
+  };
+  if (buffIconByKind[pk.kind]) {
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 64;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.58)';
+    ctx.fillRect(8, 10, c.width - 16, c.height - 20);
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.strokeRect(8.5, 10.5, c.width - 17, c.height - 21);
+    ctx.font = 'bold 28px ui-monospace, Consolas, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#f6fbff';
+    ctx.fillText(buffIconByKind[pk.kind], c.width / 2, c.height / 2 + 1);
+    const tex = new THREE.CanvasTexture(c);
+    tex.minFilter = THREE.LinearFilter;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+    sp.scale.set(1.25, 0.62, 1);
+    sp.position.set(0, 1.02, 0);
+    g.add(sp);
+  }
   g.position.set(pk.x, 0, pk.z);
   scene.add(g);
   pickups.set(pk.id, {
