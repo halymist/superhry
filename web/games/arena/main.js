@@ -2147,10 +2147,10 @@ function spawnPickupMesh(pk) {
   g.add(light);
 
   const buffIconByKind = {
-    buff_speed: 'SPD',
-    buff_hp: 'HP+',
-    buff_mana: 'MP+',
-    buff_dmg: 'DMG',
+    buff_speed: 'Rychlost',
+    buff_hp: 'Životy',
+    buff_mana: 'Mana',
+    buff_dmg: 'Poškození',
   };
   if (buffIconByKind[pk.kind]) {
     const c = document.createElement('canvas');
@@ -2162,7 +2162,7 @@ function spawnPickupMesh(pk) {
     ctx.fillRect(8, 10, c.width - 16, c.height - 20);
     ctx.strokeStyle = 'rgba(255,255,255,0.5)';
     ctx.strokeRect(8.5, 10.5, c.width - 17, c.height - 21);
-    ctx.font = 'bold 28px ui-monospace, Consolas, monospace';
+    ctx.font = 'bold 22px ui-monospace, Consolas, monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#f6fbff';
