@@ -479,6 +479,25 @@ function makeBody(color) {
   g.add(shieldBubble);
   g.userData.shieldBubble = shieldBubble;
 
+  const invulnRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.95, 0.07, 10, 32),
+    new THREE.MeshBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0.85, depthWrite: false })
+  );
+  invulnRing.rotation.x = -Math.PI / 2;
+  invulnRing.position.y = 0.18;
+  invulnRing.visible = false;
+  g.add(invulnRing);
+  g.userData.invulnRing = invulnRing;
+
+  const invulnAura = new THREE.Mesh(
+    new THREE.SphereGeometry(1.02, 20, 14),
+    new THREE.MeshBasicMaterial({ color: 0xffe9a8, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide })
+  );
+  invulnAura.position.y = 0.95;
+  invulnAura.visible = false;
+  g.add(invulnAura);
+  g.userData.invulnAura = invulnAura;
+
   // billboard nameplate (CanvasTexture sprite)
   const sprite = makeNameSprite('');
   sprite.position.y = 2.2;
@@ -1017,6 +1036,7 @@ scene.add(slotRadiusPreview);
 let hoveredSlotKey = null;
 
 const blink = { active: false, start: 0 };
+let ignoreServerSnapUntil = 0;
 const camPos = new THREE.Vector3();
 const camLook = new THREE.Vector3();
 const camDesiredPos = new THREE.Vector3();
@@ -1142,6 +1162,7 @@ function handleSnapshot(snap) {
     pl.respawnAt = p.respawnAt || 0;
     pl.shield = p.shield || 0;
     pl.shieldUntil = p.shieldUntil || 0;
+    pl.invulnUntil = p.invulnUntil || 0;
     pl.alive = p.alive;
     if (pl.mesh.userData.hpSprite) {
       setHpSprite(pl.mesh.userData.hpSprite, p.hp, pl.maxHp, pl.shield || 0);
@@ -1150,6 +1171,11 @@ function handleSnapshot(snap) {
     if (pl.mesh.userData.shieldBubble) {
       const shieldActive = p.alive && (p.shield || 0) > 0 && (!p.shieldUntil || Date.now() < p.shieldUntil);
       pl.mesh.userData.shieldBubble.visible = shieldActive;
+    }
+    if (pl.mesh.userData.invulnRing) {
+      const invulnActive = p.alive && (p.invulnUntil || 0) > Date.now();
+      pl.mesh.userData.invulnRing.visible = invulnActive;
+      if (pl.mesh.userData.invulnAura) pl.mesh.userData.invulnAura.visible = invulnActive;
     }
     if (pl.mesh.userData.stunSprite) {
       pl.mesh.userData.stunSprite.visible = p.alive && Date.now() < pl.stunUntil;
@@ -1166,7 +1192,8 @@ function handleSnapshot(snap) {
     // first sync, or if we somehow drift far from authority.
     if (p.id === myId) {
       const desync = Math.hypot(myPos.x - p.x, myPos.z - p.z);
-      if (pl._initSync !== true || (!wasAlive && p.alive) || desync > 2.5) {
+      const ignoreSnap = performance.now() < ignoreServerSnapUntil;
+      if (pl._initSync !== true || (!wasAlive && p.alive) || (desync > 2.5 && !ignoreSnap)) {
         myPos.x = p.x; myPos.z = p.z;
         myVel.set(0, 0);
         centerCameraOnMe(true);
@@ -1707,8 +1734,9 @@ function tryTeleport() {
   blink.active = true;
   blink.start = now;
 
-  send({ type: 'cast', data: { kind: 'e' } });
+  ignoreServerSnapUntil = now + 350;
   send({ type: 'state', data: { x: myPos.x, z: myPos.z, facing: myFacing } });
+  send({ type: 'cast', data: { kind: 'e', x: myPos.x, z: myPos.z } });
 }
 
 // ---------------- projectiles ----------------

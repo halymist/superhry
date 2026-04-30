@@ -381,7 +381,9 @@ type cHit struct {
 }
 
 type cCast struct {
-	Kind string `json:"kind"` // "e" etc. (non-projectile mana spend)
+	Kind string   `json:"kind"` // "e" etc. (non-projectile mana spend)
+	X    *float64 `json:"x,omitempty"`
+	Z    *float64 `json:"z,omitempty"`
 }
 
 type cPickup struct {
@@ -511,8 +513,10 @@ type hitEvent struct {
 }
 
 type castEvent struct {
-	id   uint64
-	kind string
+	id     uint64
+	kind   string
+	hasPos bool
+	x, z   float64
 }
 
 type fireEvent struct {
@@ -1106,17 +1110,11 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 				if closestID != 0 && closestD2 <= dogAggroRange*dogAggroRange {
 					n.aggroID = closestID
 					hasTarget = true
-					n.nextSayMS = nowMS + dogTalkCDMS + int64(rand.Intn(2500))
+					npcOneShotSpeak(n, dogLines, nowMS, 0.45)
 				}
 			}
 
 			if hasTarget {
-				if nowMS >= n.nextSayMS && nowMS >= n.nextSayReadyMS && (n.state.SayUntil <= 0 || nowMS >= n.state.SayUntil) {
-					n.state.Say = pickDifferentLine(dogLines, n.state.Say)
-					n.state.SayUntil = nowMS + npcSayMS
-					n.nextSayReadyMS = nowMS + npcSayInternalCDMS
-					n.nextSayMS = nowMS + dogTalkCDMS + int64(rand.Intn(2500))
-				}
 				tc := h.clients[n.aggroID]
 				if tc != nil {
 					tc.mu.Lock()
@@ -1194,17 +1192,11 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 				if closestID != 0 && closestD2 <= namestekAggroRng*namestekAggroRng {
 					n.aggroID = closestID
 					hasTarget = true
-					n.nextSayMS = nowMS + namestekTalkCDMS + int64(rand.Intn(2500))
+					npcOneShotSpeak(n, namestekLines, nowMS, 0.45)
 				}
 			}
 
 			if hasTarget {
-				if nowMS >= n.nextSayMS && nowMS >= n.nextSayReadyMS && (n.state.SayUntil <= 0 || nowMS >= n.state.SayUntil) {
-					n.state.Say = pickDifferentLine(namestekLines, n.state.Say)
-					n.state.SayUntil = nowMS + npcSayMS
-					n.nextSayReadyMS = nowMS + npcSayInternalCDMS
-					n.nextSayMS = nowMS + namestekTalkCDMS + int64(rand.Intn(2500))
-				}
 				tc := h.clients[n.aggroID]
 				if tc != nil {
 					tc.mu.Lock()
@@ -1301,19 +1293,13 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 						if dx*dx+dz*dz <= curdaAggroRng*curdaAggroRng {
 							n.aggroID = bestID
 							hasTarget = true
-							n.nextSayMS = nowMS + curdaTalkCDMS + int64(rand.Intn(2500))
+							npcOneShotSpeak(n, curdaLines, nowMS, 0.45)
 						}
 					}
 				}
 			}
 
 			if hasTarget {
-				if nowMS >= n.nextSayMS && nowMS >= n.nextSayReadyMS && (n.state.SayUntil <= 0 || nowMS >= n.state.SayUntil) {
-					n.state.Say = pickDifferentLine(curdaLines, n.state.Say)
-					n.state.SayUntil = nowMS + npcSayMS
-					n.nextSayReadyMS = nowMS + npcSayInternalCDMS
-					n.nextSayMS = nowMS + curdaTalkCDMS + int64(rand.Intn(2500))
-				}
 				tx, tz, alive := h.alivePlayerByID(n.aggroID)
 				if alive {
 					dx := tx - n.state.X
@@ -1603,7 +1589,9 @@ func (h *ArenaHub) updateNPCProjectiles(dt float64) {
 			continue
 		}
 
-		hitR := pr.Rad + playerRadius
+		// Slightly tighter hit radius vs players than visual capsule so
+		// near-misses on the client don't register as hits server-side.
+		hitR := pr.Rad + playerRadius*0.78
 		hitR2 := hitR * hitR
 		hit := false
 		for _, t := range targets {
@@ -1811,6 +1799,11 @@ func (h *ArenaHub) applyCast(ev castEvent) {
 		return
 	}
 	c.state.Mana -= cost
+
+	if ev.kind == "e" && ev.hasPos {
+		c.state.X = clamp(ev.x, -mapHalfX, mapHalfX)
+		c.state.Z = clamp(ev.z, -mapHalfZ, mapHalfZ)
+	}
 
 	if ev.kind != "c" && ev.kind != "v" && ev.kind != "x" && ev.kind != "z" && ev.kind != "s" {
 		c.mu.Unlock()
@@ -2291,11 +2284,11 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 						n.nextDirMS = nowMS + 250
 						switch n.state.Kind {
 						case "pes":
-							n.nextSayMS = nowMS + dogTalkCDMS + int64(rand.Intn(2500))
+							npcOneShotSpeak(n, dogLines, nowMS, 0.45)
 						case "namestek":
-							n.nextSayMS = nowMS + namestekTalkCDMS + int64(rand.Intn(2500))
+							npcOneShotSpeak(n, namestekLines, nowMS, 0.45)
 						case "curda":
-							n.nextSayMS = nowMS + curdaTalkCDMS + int64(rand.Intn(2500))
+							npcOneShotSpeak(n, curdaLines, nowMS, 0.45)
 						}
 					}
 				case "reditel":
@@ -2639,8 +2632,14 @@ func (c *client) readLoop() {
 			if err := json.Unmarshal(m.Data, &cc); err != nil {
 				continue
 			}
+			ev := castEvent{id: c.id, kind: cc.Kind}
+			if cc.X != nil && cc.Z != nil {
+				ev.hasPos = true
+				ev.x = *cc.X
+				ev.z = *cc.Z
+			}
 			select {
-			case c.hub.castEvt <- castEvent{id: c.id, kind: cc.Kind}:
+			case c.hub.castEvt <- ev:
 			default:
 			}
 
@@ -2803,6 +2802,17 @@ func pickDifferentLine(lines []string, last string) string {
 		return lines[idx]
 	}
 	return lines[(idx+1)%len(lines)]
+}
+
+// npcOneShotSpeak picks a single line at most once per aggro acquisition with
+// a chance and then suppresses further repeats until the NPC re-acquires a target.
+func npcOneShotSpeak(n *npcRuntime, lines []string, nowMS int64, chance float64) {
+	n.nextSayMS = math.MaxInt64
+	if rand.Float64() < chance {
+		n.state.Say = pickDifferentLine(lines, n.state.Say)
+		n.state.SayUntil = nowMS + npcSayMS
+		n.nextSayReadyMS = nowMS + npcSayInternalCDMS
+	}
 }
 
 func clamp(v, lo, hi float64) float64 {
