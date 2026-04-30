@@ -138,7 +138,7 @@ const (
 	fOrbitDurationMS = 6000
 	fOrbitTickMS     = 250
 	fOrbitRadius     = 5.5
-	fOrbitHitRadius  = 0.95
+	fOrbitHitRadius  = 1.15
 	fOrbitBaseDamage = 10
 
 	shieldDurationMS = 5000
@@ -149,7 +149,7 @@ const (
 	homeOfficeGoal          = 20
 	homeOfficeChannelMS     = 5000
 	homeOfficeRespawnMS     = 9000
-	homeOfficeInteractRange = 2.1
+	homeOfficeInteractRange = 3.4
 	homeOfficeMoveBreak     = 0.45
 
 	vBaseRadius   = 5.7
@@ -2567,11 +2567,6 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 	}
 	now := time.Now()
 	target.state.HP -= dmg
-	if dmg > 0 {
-		delete(h.channeling, target.id)
-		target.state.ChannelPickup = 0
-		target.state.ChannelUntil = 0
-	}
 	killed := target.state.HP <= 0
 	dropGold := 0
 	dropX := target.state.X
@@ -3003,7 +2998,7 @@ func (h *ArenaHub) updateOrbits(nowMS int64) {
 			continue
 		}
 
-		theta := float64(nowMS%4000) / 4000.0 * 2.0 * math.Pi
+		theta := float64(nowMS%2500) / 2500.0 * 2.0 * math.Pi
 		orbs := [3][2]float64{}
 		for i := 0; i < 3; i++ {
 			a := theta + float64(i)*(2.0*math.Pi/3.0)

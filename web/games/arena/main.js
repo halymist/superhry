@@ -108,6 +108,8 @@ const F_COOLDOWN_MS = 14000;
 const F_COST = 45;
 const F_ORBIT_DURATION_MS = 6000;
 const F_ORBIT_RADIUS = 5.5;
+const F_ORBIT_ANGULAR_SPEED = 0.0046;
+const HOME_OFFICE_CLICK_RANGE = 3.4;
 
 const PLAYER_MODEL_COLORS = [0x58c7ff, 0xff7b7b, 0x7be39a, 0xffd26b];
 
@@ -298,6 +300,14 @@ const upSEl = document.getElementById('u-s');
 const upFEl = document.getElementById('u-f');
 const rCastWrap = document.getElementById('r-cast-wrap');
 const rCastFill = document.getElementById('r-cast-fill');
+
+function layoutSpellbookGrid() {
+  if (!spellbookPanel) return;
+  const cols = Math.max(1, Math.ceil(spellCards.length / 2));
+  spellbookPanel.style.setProperty('--sb-spell-cols', String(cols));
+}
+
+layoutSpellbookGrid();
 
 const slotEls = { q: slotQ, w: slotW, e: slotE, r: slotR, f: slotF };
 const slotMaskEls = { q: slotQMask, w: slotWMask, e: slotEMask, r: slotRMask, f: slotFMask };
@@ -951,6 +961,8 @@ let rCastUntil = 0;
 let qMode = false;
 let rMode = false;
 let homeOfficeChannel = null;
+let hoveredHomeOfficePickupId = 0;
+let channelBeam = null;
 
 // --- collision helpers ---
 function pointInObstacle(x, z, rad) {
@@ -1644,6 +1656,8 @@ canvas.addEventListener('mousemove', e => {
   mouseNDC.x = ((e.clientX - r.left) / r.width) * 2 - 1;
   mouseNDC.y = -((e.clientY - r.top) / r.height) * 2 + 1;
   hasMouse = true;
+  hoveredHomeOfficePickupId = pickHoverableHomeOffice(e.clientX, e.clientY);
+  canvas.style.cursor = hoveredHomeOfficePickupId ? 'pointer' : 'default';
   if (rightMouseDown) {
     updateMouseWorld();
     setMoveTarget(mouseWorld.x, mouseWorld.z);
@@ -1668,6 +1682,8 @@ canvas.addEventListener('mouseup', e => {
 });
 window.addEventListener('blur', () => {
   rightMouseDown = false;
+  hoveredHomeOfficePickupId = 0;
+  canvas.style.cursor = 'default';
 });
 canvas.addEventListener('contextmenu', e => {
   e.preventDefault();
@@ -1713,6 +1729,8 @@ function setupSpawn() {
   fReadyAt = 0;
   myStunUntil = 0;
   homeOfficeChannel = null;
+  hoveredHomeOfficePickupId = 0;
+  canvas.style.cursor = 'default';
   if (homeOfficeChannelEl) homeOfficeChannelEl.hidden = true;
   chargeAnim.active = false;
   qMode = false;
@@ -2146,8 +2164,8 @@ function spawnOrbitEffect(ownerId, radius, durationMS) {
   const meshes = [];
   for (let i = 0; i < 3; i++) {
     const orb = new THREE.Mesh(
-      new THREE.SphereGeometry(0.42, 16, 12),
-      new THREE.MeshStandardMaterial({ color: 0xa8f0ff, emissive: 0x8ce8ff, emissiveIntensity: 0.95 })
+      new THREE.SphereGeometry(0.58, 18, 14),
+      new THREE.MeshStandardMaterial({ color: 0xb5f6ff, emissive: 0x96eeff, emissiveIntensity: 1.05 })
     );
     scene.add(orb);
     meshes.push(orb);
@@ -2176,7 +2194,7 @@ function updateOrbits(now) {
         oz = p.mesh.position.z;
       }
     }
-    const t = now * 0.003;
+    const t = now * F_ORBIT_ANGULAR_SPEED;
     for (let k = 0; k < o.meshes.length; k++) {
       const a = t + k * (Math.PI * 2 / o.meshes.length);
       const m = o.meshes[k];
@@ -2443,21 +2461,21 @@ function spawnPickupMesh(pk) {
   const orbMat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.85, transparent: true, opacity: 1.0 });
   const isHomeOffice = pk.kind === 'home_office';
   const orb = new THREE.Mesh(
-    new THREE.SphereGeometry(isHomeOffice ? 0.4 : 0.32, 16, 12),
+    new THREE.SphereGeometry(isHomeOffice ? 0.62 : 0.32, 16, 12),
     orbMat
   );
-  orb.position.y = 0.5;
+  orb.position.y = isHomeOffice ? 0.62 : 0.5;
   g.add(orb);
   const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: baseOpacity, side: THREE.DoubleSide });
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.45, 0.6, 24),
+    new THREE.RingGeometry(isHomeOffice ? 0.7 : 0.45, isHomeOffice ? 0.9 : 0.6, 24),
     ringMat
   );
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 0.04;
   g.add(ring);
-  const light = new THREE.PointLight(color, 0.5, 3);
-  light.position.y = 0.5;
+  const light = new THREE.PointLight(color, isHomeOffice ? 0.85 : 0.5, isHomeOffice ? 4.8 : 3);
+  light.position.y = isHomeOffice ? 0.75 : 0.5;
   g.add(light);
 
   const buffIconByKind = {
@@ -2508,11 +2526,69 @@ function spawnPickupMesh(pk) {
   });
 }
 
+function pickHoverableHomeOffice(clientX, clientY) {
+  const me = players.get(myId);
+  if (!me || !me.alive || winnerId) return 0;
+
+  const r = canvas.getBoundingClientRect();
+  const ndcX = ((clientX - r.left) / r.width) * 2 - 1;
+  const ndcY = -((clientY - r.top) / r.height) * 2 + 1;
+  raycaster.setFromCamera({ x: ndcX, y: ndcY }, camera);
+
+  const orbs = [];
+  for (const pk of pickups.values()) {
+    if (pk.kind === 'home_office' && pk.orb) orbs.push(pk.orb);
+  }
+  if (!orbs.length) return 0;
+  const hits = raycaster.intersectObjects(orbs, false);
+  if (!hits.length) return 0;
+
+  const hitOrb = hits[0].object;
+  const pickupId = hitOrb.userData.pickupId;
+  const pk = pickups.get(pickupId);
+  if (!pk) return 0;
+  const dx = pk.x - myPos.x;
+  const dz = pk.z - myPos.z;
+  if (dx * dx + dz * dz > HOME_OFFICE_CLICK_RANGE * HOME_OFFICE_CLICK_RANGE) return 0;
+  return pickupId;
+}
+
+function ensureChannelBeam() {
+  if (channelBeam) return channelBeam;
+  const mat = new THREE.LineBasicMaterial({ color: 0xc8f5ff, transparent: true, opacity: 0.85 });
+  const geom = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0, 0, 0),
+  ]);
+  const line = new THREE.Line(geom, mat);
+  line.visible = false;
+  scene.add(line);
+  channelBeam = { line, geom, mat };
+  return channelBeam;
+}
+
+function setChannelBeam(active, fromX, fromZ, toX, toZ, tNow) {
+  const beam = ensureChannelBeam();
+  beam.line.visible = active;
+  if (!active) return;
+
+  const wobble = Math.sin(tNow / 95) * 0.12;
+  const points = [
+    new THREE.Vector3(fromX, 1.05, fromZ),
+    new THREE.Vector3((fromX + toX) * 0.5 + wobble, 1.38 + Math.sin(tNow / 140) * 0.08, (fromZ + toZ) * 0.5 - wobble),
+    new THREE.Vector3(toX, 0.95, toZ),
+  ];
+  beam.geom.setFromPoints(points);
+  beam.mat.opacity = 0.5 + 0.35*(0.5+0.5*Math.sin(tNow/120));
+}
+
 function stopHomeOfficeChannel() {
   if (!homeOfficeChannel) return;
   send({ type: 'channel', data: { id: homeOfficeChannel.pickupId, start: false } });
   homeOfficeChannel = null;
   if (homeOfficeChannelEl) homeOfficeChannelEl.hidden = true;
+  setChannelBeam(false, 0, 0, 0, 0, 0);
 }
 
 function renderHomeOfficeLeaderboard(snapPlayers) {
@@ -2558,7 +2634,7 @@ function tryStartHomeOfficeChannelByClick(clientX, clientY) {
   if (!pk) return false;
   const dx = pk.x - myPos.x;
   const dz = pk.z - myPos.z;
-  if (dx * dx + dz * dz > (PICKUP_RADIUS + PLAYER_RADIUS + 1.0) ** 2) return false;
+  if (dx * dx + dz * dz > HOME_OFFICE_CLICK_RANGE * HOME_OFFICE_CLICK_RANGE) return false;
 
   homeOfficeChannel = { pickupId, startedAt: performance.now(), startX: myPos.x, startZ: myPos.z };
   send({ type: 'channel', data: { id: pickupId, start: true } });
@@ -2572,6 +2648,9 @@ function tryStartHomeOfficeChannelByClick(clientX, clientY) {
 function removePickup(id) {
   const pk = pickups.get(id);
   if (!pk) return;
+  if (homeOfficeChannel && homeOfficeChannel.pickupId === id) {
+    setChannelBeam(false, 0, 0, 0, 0, 0);
+  }
   scene.remove(pk.mesh);
   pk.mesh.traverse(o => {
     if (o.geometry) o.geometry.dispose();
@@ -2601,6 +2680,7 @@ function updatePickups() {
   const me = players.get(myId);
   if (!me || !me.alive) {
     if (homeOfficeChannel) stopHomeOfficeChannel();
+    setChannelBeam(false, 0, 0, 0, 0, 0);
     return;
   }
   if (homeOfficeChannel) {
@@ -2614,7 +2694,12 @@ function updatePickups() {
         homeOfficeChannelEl.hidden = false;
         homeOfficeChannelEl.textContent = `Channeling ${Math.ceil(remain / 1000)}s`;
       }
+      const p = pickups.get(homeOfficeChannel.pickupId);
+      if (p) setChannelBeam(true, myPos.x, myPos.z, p.x, p.z, now);
+      else setChannelBeam(false, 0, 0, 0, 0, 0);
     }
+  } else {
+    setChannelBeam(false, 0, 0, 0, 0, 0);
   }
   for (const pk of pickups.values()) {
     if (pk.kind === 'home_office') continue;
