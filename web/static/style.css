@@ -289,6 +289,18 @@ html, body {
   transition: width 120ms ease;
 }
 
+.hud .hp-shield-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  background: linear-gradient(to right, #ffe8fb, #ffc6ea);
+  opacity: 0;
+  transition: left 120ms ease, width 120ms ease, opacity 120ms ease;
+  pointer-events: none;
+}
+
 .hud .mp-bar {
   position: relative;
   height: 14px;
@@ -455,16 +467,6 @@ html, body {
   display: grid;
   grid-template-columns: repeat(5, var(--sb-cell-size));
   gap: 6px;
-}
-
-.hud .spellbook-panel .sb-up-hp {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.hud .spellbook-panel .sb-up-mana {
-  grid-column: 1;
-  grid-row: 2;
 }
 
 .hud .spellbook-panel .sb-spell {

@@ -34,6 +34,7 @@
         </div>
         <div class="hp-bar">
           <div id="hp-fill" class="hp-fill"></div>
+          <div id="hp-shield-fill" class="hp-shield-fill"></div>
           <div id="hp-text" class="bar-value">100/100</div>
         </div>
         <div class="mp-bar">
@@ -70,7 +71,7 @@
 
       <div class="spellbook-panel" id="spellbook-panel" hidden>
         <div class="sb-head">
-          <div class="sb-meta">Vylepšení (2 Prémie)</div>
+          <div class="sb-meta">Staty + Odemčení (2 Prémie)</div>
           <button id="spellbook-close" class="sb-close" type="button" aria-label="Zavřít panel">&times;</button>
         </div>
 
@@ -80,40 +81,56 @@
             <div class="sb-lvl" id="u-hp">0/10</div>
           </button>
           <button class="sb-spell sb-upgrade sb-up-mana" data-upgrade="mana" type="button">
-            <div class="sb-spell-top"><span class="sb-name">Mana</span></div>
+            <div class="sb-spell-top"><span class="sb-name">MP</span></div>
             <div class="sb-lvl" id="u-mana">0/10</div>
+          </button>
+          <button class="sb-spell sb-upgrade" data-upgrade="dmg" type="button">
+            <div class="sb-spell-top"><span class="sb-name">Poškození</span></div>
+            <div class="sb-lvl" id="u-dmg">0/10</div>
+          </button>
+          <button class="sb-spell sb-upgrade" data-upgrade="speed" type="button">
+            <div class="sb-spell-top"><span class="sb-name">Rychlost</span></div>
+            <div class="sb-lvl" id="u-speed">0/10</div>
+          </button>
+          <button class="sb-spell sb-upgrade" data-upgrade="cdr" type="button">
+            <div class="sb-spell-top"><span class="sb-name">Cooldown</span></div>
+            <div class="sb-lvl" id="u-cdr">0/10</div>
           </button>
           <div class="sb-spell" data-spell="q" draggable="true">
             <div class="sb-spell-top"><span class="sb-name">Salva</span></div>
-            <div class="sb-lvl" id="u-q">0/5</div>
+            <div class="sb-lvl" id="u-q">0/1</div>
           </div>
           <div class="sb-spell" data-spell="w" draggable="true">
             <div class="sb-spell-top"><span class="sb-name">Sprint</span></div>
-            <div class="sb-lvl" id="u-w">0/5</div>
+            <div class="sb-lvl" id="u-w">0/1</div>
           </div>
           <div class="sb-spell" data-spell="e" draggable="true">
             <div class="sb-spell-top"><span class="sb-name">Teleport</span></div>
-            <div class="sb-lvl" id="u-e">0/5</div>
+            <div class="sb-lvl" id="u-e">0/1</div>
           </div>
           <div class="sb-spell" data-spell="r" draggable="true">
             <div class="sb-spell-top"><span class="sb-name">Strela</span></div>
-            <div class="sb-lvl" id="u-r">0/5</div>
+            <div class="sb-lvl" id="u-r">0/1</div>
           </div>
           <div class="sb-spell" data-spell="c" draggable="true">
             <div class="sb-spell-top"><span class="sb-name">Naraz</span></div>
-            <div class="sb-lvl" id="u-c">0/5</div>
+            <div class="sb-lvl" id="u-c">0/1</div>
           </div>
           <div class="sb-spell" data-spell="v" draggable="true">
             <div class="sb-spell-top"><span class="sb-name">Pole</span></div>
-            <div class="sb-lvl" id="u-v">0/5</div>
+            <div class="sb-lvl" id="u-v">0/1</div>
           </div>
           <div class="sb-spell" data-spell="x" draggable="true">
             <div class="sb-spell-top"><span class="sb-name">Omraceni</span></div>
-            <div class="sb-lvl" id="u-x">0/5</div>
+            <div class="sb-lvl" id="u-x">0/1</div>
           </div>
           <div class="sb-spell" data-spell="z" draggable="true">
             <div class="sb-spell-top"><span class="sb-name">Dopad</span></div>
-            <div class="sb-lvl" id="u-z">0/5</div>
+            <div class="sb-lvl" id="u-z">0/1</div>
+          </div>
+          <div class="sb-spell" data-spell="s" draggable="true">
+            <div class="sb-spell-top"><span class="sb-name">Stit</span></div>
+            <div class="sb-lvl" id="u-s">0/1</div>
           </div>
         </div>
       </div>

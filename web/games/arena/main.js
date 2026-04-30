@@ -59,9 +59,15 @@ const E_COST   = 50;
 const W_SPEED_MULT = 1.3;
 const W_DURATION_MS = 8000;
 const W_COST = 30;
-const HP_MANA_UP_MAX = 10;
-const SPELL_UP_MAX = 5;
+const STAT_UP_MAX = 10;
+const SPELL_UNLOCK_MAX = 1;
 const C_DASH_MS     = 220;
+
+const STAT_HP_PCT = 0.10;
+const STAT_MP_PCT = 0.10;
+const STAT_DMG_PCT = 0.10;
+const STAT_SPEED_PCT = 0.02;
+const STAT_CDR_PCT = 0.03;
 
 // camera pan
 const CAM_PAN_EDGE = 0.72;
@@ -95,6 +101,9 @@ const Z_RADIUS_STEP = 0.22;
 const Z_BASE_DAMAGE = 32;
 const Z_DAMAGE_STEP = 5;
 
+const S_COOLDOWN_MS = 12000;
+const S_COST = 40;
+
 const PLAYER_MODEL_COLORS = [0x58c7ff, 0xff7b7b, 0x7be39a, 0xffd26b];
 
 const SPELL_DEFS = {
@@ -106,6 +115,7 @@ const SPELL_DEFS = {
   v: { id: 'v', name: 'Pole' },
   x: { id: 'x', name: 'Omraceni' },
   z: { id: 'z', name: 'Dopad' },
+  s: { id: 's', name: 'Stit' },
 };
 
 // pickups
@@ -131,34 +141,45 @@ function upgradeCost(kind, lvl) {
 }
 
 function myAbilityStats() {
+  const cdr = Math.max(0, Math.min(0.8, (myUp.cdr || 0) * STAT_CDR_PCT));
   return {
-    qDmg: Q_BASE_DAMAGE + Math.max(0, (myUp.q || 1) - 1) * Q_DAMAGE_STEP,
-    wDuration: W_DURATION_MS + myUp.w * 1200,
-    eRange: E_RANGE + myUp.e * 1.1,
-    rRadius: R_RADIUS + myUp.r * 0.32,
-    rDmg: R_DAMAGE + myUp.r * R_DAMAGE_STEP,
+    qDmg: Q_BASE_DAMAGE,
+    wDuration: W_DURATION_MS,
+    eRange: E_RANGE,
+    rRadius: R_RADIUS,
+    rDmg: R_DAMAGE,
+    moveSpeedMult: 1 + (myUp.speed || 0) * STAT_SPEED_PCT,
+    cdrMult: 1 - cdr,
   };
+}
+
+function cooldownMs(baseMs, statsNow = myAbilityStats()) {
+  return Math.max(250, Math.round(baseMs * statsNow.cdrMult));
 }
 
 function refreshSpellbookUi() {
   if (!spellbookPanel) return;
-  upHpEl.textContent = `${myUp.hp}/${HP_MANA_UP_MAX}`;
-  upManaEl.textContent = `${myUp.mana}/${HP_MANA_UP_MAX}`;
-  upQEl.textContent = `${myUp.q}/${SPELL_UP_MAX}`;
-  upWEl.textContent = `${myUp.w}/${SPELL_UP_MAX}`;
-  upEEl.textContent = `${myUp.e}/${SPELL_UP_MAX}`;
-  upREl.textContent = `${myUp.r}/${SPELL_UP_MAX}`;
-  upCEl.textContent = `${myUp.c}/${SPELL_UP_MAX}`;
-  upVEl.textContent = `${myUp.v}/${SPELL_UP_MAX}`;
-  upXEl.textContent = `${myUp.x}/${SPELL_UP_MAX}`;
-  upZEl.textContent = `${myUp.z}/${SPELL_UP_MAX}`;
-  const lvlByKind = { hp: myUp.hp, mana: myUp.mana, q: myUp.q, w: myUp.w, e: myUp.e, r: myUp.r, c: myUp.c, v: myUp.v, x: myUp.x, z: myUp.z };
-  const capByKind = { hp: HP_MANA_UP_MAX, mana: HP_MANA_UP_MAX, q: SPELL_UP_MAX, w: SPELL_UP_MAX, e: SPELL_UP_MAX, r: SPELL_UP_MAX, c: SPELL_UP_MAX, v: SPELL_UP_MAX, x: SPELL_UP_MAX, z: SPELL_UP_MAX };
+  upHpEl.textContent = `${myUp.hp}/${STAT_UP_MAX}`;
+  upManaEl.textContent = `${myUp.mana}/${STAT_UP_MAX}`;
+  upDmgEl.textContent = `${myUp.dmg}/${STAT_UP_MAX}`;
+  upSpeedEl.textContent = `${myUp.speed}/${STAT_UP_MAX}`;
+  upCdrEl.textContent = `${myUp.cdr}/${STAT_UP_MAX}`;
+  upQEl.textContent = `${myUp.q}/${SPELL_UNLOCK_MAX}`;
+  upWEl.textContent = `${myUp.w}/${SPELL_UNLOCK_MAX}`;
+  upEEl.textContent = `${myUp.e}/${SPELL_UNLOCK_MAX}`;
+  upREl.textContent = `${myUp.r}/${SPELL_UNLOCK_MAX}`;
+  upCEl.textContent = `${myUp.c}/${SPELL_UNLOCK_MAX}`;
+  upVEl.textContent = `${myUp.v}/${SPELL_UNLOCK_MAX}`;
+  upXEl.textContent = `${myUp.x}/${SPELL_UNLOCK_MAX}`;
+  upZEl.textContent = `${myUp.z}/${SPELL_UNLOCK_MAX}`;
+  upSEl.textContent = `${myUp.s}/${SPELL_UNLOCK_MAX}`;
+  const lvlByKind = { hp: myUp.hp, mana: myUp.mana, dmg: myUp.dmg, speed: myUp.speed, cdr: myUp.cdr, q: myUp.q, w: myUp.w, e: myUp.e, r: myUp.r, c: myUp.c, v: myUp.v, x: myUp.x, z: myUp.z, s: myUp.s };
+  const capByKind = { hp: STAT_UP_MAX, mana: STAT_UP_MAX, dmg: STAT_UP_MAX, speed: STAT_UP_MAX, cdr: STAT_UP_MAX, q: SPELL_UNLOCK_MAX, w: SPELL_UNLOCK_MAX, e: SPELL_UNLOCK_MAX, r: SPELL_UNLOCK_MAX, c: SPELL_UNLOCK_MAX, v: SPELL_UNLOCK_MAX, x: SPELL_UNLOCK_MAX, z: SPELL_UNLOCK_MAX, s: SPELL_UNLOCK_MAX };
   for (const inline of spellbookUpgradeInline) {
     const kind = inline.dataset.upgrade;
     const lvl = lvlByKind[kind] || 0;
     const cost = upgradeCost(kind, lvl);
-    const maxLvl = capByKind[kind] || SPELL_UP_MAX;
+    const maxLvl = capByKind[kind] || SPELL_UNLOCK_MAX;
     inline.title = lvl >= maxLvl ? 'MAX' : `Cena: ${cost} Prémie`;
     inline.classList.toggle('disabled', lvl >= maxLvl || myGold < cost);
   }
@@ -168,7 +189,7 @@ function refreshSpellbookUi() {
     if (!kind) continue;
     const lvl = lvlByKind[kind] || 0;
     card.classList.toggle('locked', lvl <= 0);
-    card.title = '';
+    card.title = lvl > 0 ? 'Odemčeno' : `Odemknout: ${upgradeCost(kind, 0)} Prémie`;
   }
 
   renderEquippedSlots();
@@ -176,23 +197,27 @@ function refreshSpellbookUi() {
 }
 
 function poolRadiusForLevel(level) {
-  return V_BASE_RADIUS + Math.max(0, level) * V_RADIUS_STEP;
+  void level;
+  return V_BASE_RADIUS;
 }
 
 function zRadiusForLevel(level) {
-  return Z_BASE_RADIUS + Math.max(0, level) * Z_RADIUS_STEP;
+  void level;
+  return Z_BASE_RADIUS;
 }
 
 function zDamageForLevel(level) {
-  return Z_BASE_DAMAGE + Math.max(0, level) * Z_DAMAGE_STEP;
+  void level;
+  return Z_BASE_DAMAGE;
 }
 
 function spellRadiusForLevel(kind, level) {
+  void level;
   if (kind === 'q') return Q_RANGE;
-  if (kind === 'e') return E_RANGE + Math.max(0, level) * 1.1;
+  if (kind === 'e') return E_RANGE;
   if (kind === 'r') return R_RANGE;
   if (kind === 'c') return C_DASH_DIST;
-  if (kind === 'v') return poolRadiusForLevel(level);
+  if (kind === 'v') return V_BASE_RADIUS;
   if (kind === 'x') return X_RANGE;
   if (kind === 'z') return Z_CAST_RANGE;
   return null;
@@ -207,9 +232,9 @@ function tryCastPool() {
   if (now < vReadyAt) return;
   if (myMana < V_COST) return;
 
-  vReadyAt = now + V_COOLDOWN_MS;
-  myMana = Math.max(0, myMana - V_COST);
-  spawnPoolEffect(myId, poolRadiusForLevel(myUp.v || 0), V_DURATION_MS);
+  const stats = myAbilityStats();
+  vReadyAt = now + cooldownMs(V_COOLDOWN_MS, stats);
+  spawnPoolEffect(myId, V_BASE_RADIUS, V_DURATION_MS);
   send({ type: 'cast', data: { kind: 'v' } });
 }
 
@@ -223,6 +248,7 @@ const buffStatusTextEl = document.getElementById('buff-status-text');
 
 const hpText = document.getElementById('hp-text');
 const hpFill = document.getElementById('hp-fill');
+const hpShieldFill = document.getElementById('hp-shield-fill');
 const mpText = document.getElementById('mp-text');
 const mpFill = document.getElementById('mp-fill');
 const goldText = document.getElementById('gold-text');
@@ -243,6 +269,9 @@ const spellbookUpgradeInline = Array.from(document.querySelectorAll('#spellbook-
 const spellCards = Array.from(document.querySelectorAll('#spellbook-panel .sb-spell'));
 const upHpEl = document.getElementById('u-hp');
 const upManaEl = document.getElementById('u-mana');
+const upDmgEl = document.getElementById('u-dmg');
+const upSpeedEl = document.getElementById('u-speed');
+const upCdrEl = document.getElementById('u-cdr');
 const upQEl = document.getElementById('u-q');
 const upWEl = document.getElementById('u-w');
 const upEEl = document.getElementById('u-e');
@@ -251,6 +280,7 @@ const upCEl = document.getElementById('u-c');
 const upVEl = document.getElementById('u-v');
 const upXEl = document.getElementById('u-x');
 const upZEl = document.getElementById('u-z');
+const upSEl = document.getElementById('u-s');
 const rCastWrap = document.getElementById('r-cast-wrap');
 const rCastFill = document.getElementById('r-cast-fill');
 
@@ -440,6 +470,15 @@ function makeBody(color) {
   ring.position.y = 0.03;
   g.add(ring);
 
+  const shieldBubble = new THREE.Mesh(
+    new THREE.SphereGeometry(1.08, 24, 16),
+    new THREE.MeshBasicMaterial({ color: 0x8bd8ff, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide })
+  );
+  shieldBubble.position.y = 0.95;
+  shieldBubble.visible = false;
+  g.add(shieldBubble);
+  g.userData.shieldBubble = shieldBubble;
+
   // billboard nameplate (CanvasTexture sprite)
   const sprite = makeNameSprite('');
   sprite.position.y = 2.2;
@@ -567,7 +606,7 @@ function makeHpSprite() {
   sp.userData.tex = tex;
   return sp;
 }
-function drawHpSprite(ctx, ratio) {
+function drawHpSprite(ctx, ratio, shieldRatio = 0) {
   const w = 128, h = 24;
   const innerX = 4, innerY = 6, innerW = 120, innerH = 12;
   ctx.clearRect(0, 0, w, h);
@@ -575,14 +614,21 @@ function drawHpSprite(ctx, ratio) {
   ctx.fillRect(0, 0, w, h);
   ctx.fillStyle = '#3b1f30';
   ctx.fillRect(innerX, innerY, innerW, innerH);
+  const hpW = Math.max(0, Math.min(innerW, innerW * ratio));
+  const shieldW = Math.max(0, Math.min(innerW - hpW, innerW * shieldRatio));
+  if (shieldW > 0) {
+    ctx.fillStyle = '#ffc8ef';
+    ctx.fillRect(innerX + hpW, innerY, shieldW, innerH);
+  }
   ctx.fillStyle = '#ff5d7a';
-  ctx.fillRect(innerX, innerY, Math.max(0, Math.min(innerW, innerW * ratio)), innerH);
+  ctx.fillRect(innerX, innerY, hpW, innerH);
   ctx.strokeStyle = 'rgba(255,255,255,0.35)';
   ctx.strokeRect(innerX + 0.5, innerY + 0.5, innerW - 1, innerH - 1);
 }
-function setHpSprite(sp, hp, maxHp) {
+function setHpSprite(sp, hp, maxHp, shield = 0) {
   const ratio = maxHp > 0 ? Math.max(0, Math.min(1, hp / maxHp)) : 0;
-  drawHpSprite(sp.userData.ctx, ratio);
+  const shieldRatio = maxHp > 0 ? Math.max(0, Math.min(1 - ratio, shield / maxHp)) : 0;
+  drawHpSprite(sp.userData.ctx, ratio, shieldRatio);
   sp.userData.tex.needsUpdate = true;
 }
 function drawNameSprite(ctx, text, color) {
@@ -834,7 +880,7 @@ let startHP = 100;
 let startMana = 100;
 let myMana = 100; // optimistic local prediction; corrected by snapshots
 let myGold = 0;
-let myUp = { hp: 0, mana: 0, q: 1, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0 };
+let myUp = { hp: 0, mana: 0, dmg: 0, speed: 0, cdr: 0, q: 1, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0, s: 0 };
 let myStunUntil = 0;
 const myBuffs = new Map();
 
@@ -859,6 +905,7 @@ let rReadyAt = 0;
 let cReadyAt = 0;
 let xReadyAt = 0;
 let zReadyAt = 0;
+let sReadyAt = 0;
 let aaReadyAt = 0;
 let rCastUntil = 0;
 let qMode = false;
@@ -1010,7 +1057,7 @@ function onMessage(raw) {
       startMana = m.data.startMana || 100;
       myMana = startMana;
       myGold = 0;
-      myUp = { hp: 0, mana: 0, q: 1, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0 };
+      myUp = { hp: 0, mana: 0, dmg: 0, speed: 0, cdr: 0, q: 1, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0, s: 0 };
       myStunUntil = 0;
       refreshSpellbookUi();
       break;
@@ -1078,6 +1125,9 @@ function handleSnapshot(snap) {
     pl.gold = p.gold || 0;
     pl.upHp = p.upHp || 0;
     pl.upMana = p.upMana || 0;
+    pl.upDmg = p.upDmg || 0;
+    pl.upSpeed = p.upSpeed || 0;
+    pl.upCdr = p.upCdr || 0;
     pl.upQ = p.upQ || 0;
     pl.upW = p.upW || 0;
     pl.upE = p.upE || 0;
@@ -1086,13 +1136,20 @@ function handleSnapshot(snap) {
     pl.upV = p.upV || 0;
     pl.upX = p.upX || 0;
     pl.upZ = p.upZ || 0;
+    pl.upS = p.upS || 0;
     pl.buffs = Array.isArray(p.buffs) ? p.buffs : [];
     pl.stunUntil = p.stunUntil || 0;
     pl.respawnAt = p.respawnAt || 0;
+    pl.shield = p.shield || 0;
+    pl.shieldUntil = p.shieldUntil || 0;
     pl.alive = p.alive;
     if (pl.mesh.userData.hpSprite) {
-      setHpSprite(pl.mesh.userData.hpSprite, p.hp, pl.maxHp);
+      setHpSprite(pl.mesh.userData.hpSprite, p.hp, pl.maxHp, pl.shield || 0);
       pl.mesh.userData.hpSprite.visible = p.id !== myId && p.alive;
+    }
+    if (pl.mesh.userData.shieldBubble) {
+      const shieldActive = p.alive && (p.shield || 0) > 0 && (!p.shieldUntil || Date.now() < p.shieldUntil);
+      pl.mesh.userData.shieldBubble.visible = shieldActive;
     }
     if (pl.mesh.userData.stunSprite) {
       pl.mesh.userData.stunSprite.visible = p.alive && Date.now() < pl.stunUntil;
@@ -1126,19 +1183,24 @@ function handleSnapshot(snap) {
   if (me) {
     const maxHp = me.maxHp || startHP;
     const maxMana = me.maxMana || startMana;
-    hpText.textContent = `${me.hp}/${maxHp}`;
+    const shield = me.shield || 0;
+    hpText.textContent = shield > 0 ? `${me.hp}+${shield}/${maxHp}` : `${me.hp}/${maxHp}`;
     hpFill.style.width = `${Math.max(0, me.hp) / maxHp * 100}%`;
-    if (typeof me.mana === 'number') {
-      // Server is authoritative; if local prediction undershot, snap up.
-      if (me.mana > myMana) myMana = me.mana;
-      // If server is lower than our prediction, accept it (we predicted too
-      // optimistically or another cast was rejected).
-      if (me.mana < myMana - 2) myMana = me.mana;
+    if (hpShieldFill) {
+      const hpPct = Math.max(0, Math.min(1, me.hp / Math.max(1, maxHp)));
+      const shieldPct = Math.max(0, Math.min(1-hpPct, shield / Math.max(1, maxHp)));
+      hpShieldFill.style.left = `${hpPct * 100}%`;
+      hpShieldFill.style.width = `${shieldPct * 100}%`;
+      hpShieldFill.style.opacity = shieldPct > 0 ? '1' : '0';
     }
+    if (typeof me.mana === 'number') myMana = me.mana;
     myGold = me.gold || 0;
     myUp = {
       hp: me.upHp || 0,
       mana: me.upMana || 0,
+      dmg: me.upDmg || 0,
+      speed: me.upSpeed || 0,
+      cdr: me.upCdr || 0,
       q: me.upQ || 0,
       w: me.upW || 0,
       e: me.upE || 0,
@@ -1147,6 +1209,7 @@ function handleSnapshot(snap) {
       v: me.upV || 0,
       x: me.upX || 0,
       z: me.upZ || 0,
+      s: me.upS || 0,
     };
     setMyBuffs(me.buffs || []);
     myStunUntil = me.stunUntil || 0;
@@ -1347,22 +1410,28 @@ function castEquipped(slotKey) {
   }
   if (spellKind === 'z') {
     tryCastZ();
+    return;
+  }
+  if (spellKind === 's') {
+    tryCastShield();
   }
 }
 
 function spellCooldownRatio(kind, now, statsNow) {
-  if (kind === 'q') return Math.max(0, Math.min(1, Math.max(0, qReadyAt - now) / Q_COOLDOWN_MS));
+  if (kind === 'q') return Math.max(0, Math.min(1, Math.max(0, qReadyAt - now) / cooldownMs(Q_COOLDOWN_MS, statsNow)));
   if (kind === 'w') return Math.max(0, Math.min(1, Math.max(0, wActiveUntil - now) / Math.max(1, statsNow.wDuration)));
-  if (kind === 'e') return Math.max(0, Math.min(1, Math.max(0, eReadyAt - now) / E_COOLDOWN_MS));
-  if (kind === 'r') return Math.max(0, Math.min(1, Math.max(0, rReadyAt - now) / R_COOLDOWN_MS));
-  if (kind === 'c') return Math.max(0, Math.min(1, Math.max(0, cReadyAt - now) / C_COOLDOWN_MS));
-  if (kind === 'v') return Math.max(0, Math.min(1, Math.max(0, vReadyAt - now) / V_COOLDOWN_MS));
-  if (kind === 'x') return Math.max(0, Math.min(1, Math.max(0, xReadyAt - now) / X_COOLDOWN_MS));
-  if (kind === 'z') return Math.max(0, Math.min(1, Math.max(0, zReadyAt - now) / Z_COOLDOWN_MS));
+  if (kind === 'e') return Math.max(0, Math.min(1, Math.max(0, eReadyAt - now) / cooldownMs(E_COOLDOWN_MS, statsNow)));
+  if (kind === 'r') return Math.max(0, Math.min(1, Math.max(0, rReadyAt - now) / cooldownMs(R_COOLDOWN_MS, statsNow)));
+  if (kind === 'c') return Math.max(0, Math.min(1, Math.max(0, cReadyAt - now) / cooldownMs(C_COOLDOWN_MS, statsNow)));
+  if (kind === 'v') return Math.max(0, Math.min(1, Math.max(0, vReadyAt - now) / cooldownMs(V_COOLDOWN_MS, statsNow)));
+  if (kind === 'x') return Math.max(0, Math.min(1, Math.max(0, xReadyAt - now) / cooldownMs(X_COOLDOWN_MS, statsNow)));
+  if (kind === 'z') return Math.max(0, Math.min(1, Math.max(0, zReadyAt - now) / cooldownMs(Z_COOLDOWN_MS, statsNow)));
+  if (kind === 's') return Math.max(0, Math.min(1, Math.max(0, sReadyAt - now) / cooldownMs(S_COOLDOWN_MS, statsNow)));
   return 0;
 }
 
-function canCastSpell(kind, alive, now) {
+function canCastSpell(kind, alive, now, statsNow = myAbilityStats()) {
+  void statsNow;
   if (!alive || !kind) return false;
   if (Date.now() < myStunUntil) return false;
   if (kind === 'q') return myMana >= Q_COST && now >= qReadyAt && now >= qBurstUntil;
@@ -1373,6 +1442,7 @@ function canCastSpell(kind, alive, now) {
   if (kind === 'v') return myUp.v > 0 && myMana >= V_COST && now >= vReadyAt;
   if (kind === 'x') return myUp.x > 0 && myMana >= X_COST && now >= xReadyAt;
   if (kind === 'z') return myUp.z > 0 && myMana >= Z_COST && now >= zReadyAt;
+  if (kind === 's') return myUp.s > 0 && myMana >= S_COST && now >= sReadyAt;
   return false;
 }
 
@@ -1420,7 +1490,7 @@ for (const inline of spellbookUpgradeInline) {
     const kind = inline.dataset.upgrade;
     if (!kind) return;
     const lvl = myUp[kind] || 0;
-    const maxLvl = (kind === 'hp' || kind === 'mana') ? HP_MANA_UP_MAX : SPELL_UP_MAX;
+    const maxLvl = STAT_UP_MAX;
     if (lvl >= maxLvl) return;
     if (myGold < upgradeCost(kind, lvl)) return;
     send({ type: 'upgrade', data: { kind } });
@@ -1431,6 +1501,8 @@ for (const card of spellCards) {
   card.addEventListener('click', () => {
     const kind = card.dataset.spell;
     if (!kind || !(kind in SPELL_DEFS)) return;
+    if (isSpellUnlocked(kind)) return;
+    if (myGold < upgradeCost(kind, 0)) return;
     send({ type: 'upgrade', data: { kind } });
   });
   card.addEventListener('dragstart', e => {
@@ -1539,6 +1611,7 @@ function setupSpawn() {
   vReadyAt = 0;
   xReadyAt = 0;
   zReadyAt = 0;
+  sReadyAt = 0;
   myStunUntil = 0;
   chargeAnim.active = false;
   qMode = false;
@@ -1594,7 +1667,6 @@ function tryCastW() {
   if (myMana < W_COST) return;
   const stats = myAbilityStats();
   wActiveUntil = now + stats.wDuration;
-  myMana = Math.max(0, myMana - W_COST);
   send({ type: 'cast', data: { kind: 'w' } });
 }
 
@@ -1630,8 +1702,7 @@ function tryTeleport() {
   myPos.z = spot.z;
   hasMoveTarget = false;
 
-  eReadyAt = now + E_COOLDOWN_MS;
-  myMana = Math.max(0, myMana - E_COST);
+  eReadyAt = now + cooldownMs(E_COOLDOWN_MS, stats);
 
   blink.active = true;
   blink.start = now;
@@ -1649,8 +1720,8 @@ function tryFireQ() {
   if (now < qBurstUntil) return;
   if (now < qReadyAt) return;
   if (myMana < Q_COST) return;
-  qReadyAt = now + Q_COOLDOWN_MS;
-  myMana = Math.max(0, myMana - Q_COST);
+  const stats = myAbilityStats();
+  qReadyAt = now + cooldownMs(Q_COOLDOWN_MS, stats);
   qMode = false;
   slotQ.classList.remove('targeting');
   qBurstUntil = now + Q_BURST_MS;
@@ -1672,9 +1743,9 @@ function tryFireR() {
   rightMouseDown = false;
   myVel.set(0, 0);
 
-  rReadyAt = now + R_COOLDOWN_MS;
+  const stats = myAbilityStats();
+  rReadyAt = now + cooldownMs(R_COOLDOWN_MS, stats);
   rCastUntil = now + R_CAST_MS;
-  myMana = Math.max(0, myMana - R_COST);
   rMode = false;
   slotR.classList.remove('targeting');
 }
@@ -1687,6 +1758,7 @@ function tryCastCharge() {
   const now = performance.now();
   if (now < cReadyAt) return;
   if (myMana < C_COST) return;
+  const stats = myAbilityStats();
 
   const dirX = Math.sin(myFacing);
   const dirZ = Math.cos(myFacing);
@@ -1704,8 +1776,7 @@ function tryCastCharge() {
   rightMouseDown = false;
   myVel.set(0, 0);
 
-  cReadyAt = now + C_COOLDOWN_MS;
-  myMana = Math.max(0, myMana - C_COST);
+  cReadyAt = now + cooldownMs(C_COOLDOWN_MS, stats);
   send({ type: 'cast', data: { kind: 'c' } });
   send({ type: 'state', data: { x: chargeAnim.toX, z: chargeAnim.toZ, facing: myFacing } });
 }
@@ -1718,9 +1789,9 @@ function tryFireX() {
   const now = performance.now();
   if (now < xReadyAt) return;
   if (myMana < X_COST) return;
+  const stats = myAbilityStats();
 
-  xReadyAt = now + X_COOLDOWN_MS;
-  myMana = Math.max(0, myMana - X_COST);
+  xReadyAt = now + cooldownMs(X_COOLDOWN_MS, stats);
   fireProjectile('x');
 }
 
@@ -1732,6 +1803,7 @@ function tryCastZ() {
   const now = performance.now();
   if (now < zReadyAt) return;
   if (myMana < Z_COST) return;
+  const stats = myAbilityStats();
 
   updateMouseWorld();
   let tx = myPos.x + Math.sin(myFacing) * 3.5;
@@ -1752,13 +1824,26 @@ function tryCastZ() {
   tx = Math.max(-serverHalfX + 0.5, Math.min(serverHalfX - 0.5, tx));
   tz = Math.max(-serverHalfZ + 0.5, Math.min(serverHalfZ - 0.5, tz));
 
-  const radius = zRadiusForLevel(myUp.z || 0);
-  const damage = zDamageForLevel(myUp.z || 0);
-  zReadyAt = now + Z_COOLDOWN_MS;
-  myMana = Math.max(0, myMana - Z_COST);
+  const radius = Z_BASE_RADIUS;
+  const damage = Z_BASE_DAMAGE;
+  zReadyAt = now + cooldownMs(Z_COOLDOWN_MS, stats);
 
   spawnGroundBurst(myId, tx, tz, radius, Z_DELAY_MS, damage);
   send({ type: 'fire', data: { pid: myProjectileSeq++, ox: tx, oz: tz, dx: radius, dz: Z_DELAY_MS / 1000, kind: 'z' } });
+}
+
+function tryCastShield() {
+  const me = players.get(myId);
+  if (!me || !me.alive) return;
+  if (Date.now() < myStunUntil) return;
+  if ((myUp.s || 0) <= 0) return;
+  const now = performance.now();
+  if (now < sReadyAt) return;
+  if (myMana < S_COST) return;
+
+  const stats = myAbilityStats();
+  sReadyAt = now + cooldownMs(S_COOLDOWN_MS, stats);
+  send({ type: 'cast', data: { kind: 's' } });
 }
 
 function tryAutoAttack() {
@@ -2347,8 +2432,9 @@ function loop(t) {
     }
 
     const sprintActive = performance.now() < wActiveUntil;
+    const statsNow = myAbilityStats();
     const speedBuffMult = hasMyBuff('speed') ? 1.1 : 1.0;
-    const moveSpeedNow = MOVE_SPEED * speedBuffMult * (sprintActive ? W_SPEED_MULT : 1);
+    const moveSpeedNow = MOVE_SPEED * statsNow.moveSpeedMult * speedBuffMult * (sprintActive ? W_SPEED_MULT : 1);
     myVel.set(0, 0);
     if (stunned) {
       hasMoveTarget = false;
@@ -2369,8 +2455,6 @@ function loop(t) {
     if (rCastUntil > 0 && myVel.lengthSq() > 0.0004) {
       rCastUntil = 0;
       rReadyAt = performance.now();
-      const maxMana = (me && me.maxMana) ? me.maxMana : startMana;
-      myMana = Math.min(maxMana, myMana + R_COST);
     }
 
     let moved = 0;
@@ -2619,11 +2703,9 @@ function loop(t) {
     slotR.classList.remove('targeting');
   }
 
-  // mana display (smoothly tween toward server-known + local prediction)
+  // mana display (server-authoritative)
   if (me && typeof me.mana === 'number') {
     const maxMana = me.maxMana || startMana;
-    // local regen prediction between snapshots (8/s)
-    if (alive && myMana < maxMana) myMana = Math.min(maxMana, myMana + 8 * dt);
     mpText.textContent = `${Math.round(myMana)}/${maxMana}`;
     mpFill.style.width = `${Math.max(0, myMana) / maxMana * 100}%`;
   }
