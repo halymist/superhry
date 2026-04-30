@@ -104,6 +104,11 @@ const Z_DAMAGE_STEP = 5;
 const S_COOLDOWN_MS = 12000;
 const S_COST = 40;
 
+const F_COOLDOWN_MS = 14000;
+const F_COST = 45;
+const F_ORBIT_DURATION_MS = 6000;
+const F_ORBIT_RADIUS = 5.5;
+
 const PLAYER_MODEL_COLORS = [0x58c7ff, 0xff7b7b, 0x7be39a, 0xffd26b];
 
 const SPELL_DEFS = {
@@ -116,6 +121,7 @@ const SPELL_DEFS = {
   x: { id: 'x', name: 'Omraceni' },
   z: { id: 'z', name: 'Dopad' },
   s: { id: 's', name: 'Stit' },
+  f: { id: 'f', name: 'Orbit' },
 };
 
 // pickups
@@ -137,7 +143,7 @@ const chargeAnim = { active: false, startAt: 0, endAt: 0, fromX: 0, fromZ: 0, to
 function upgradeCost(kind, lvl) {
   void kind;
   void lvl;
-  return 2;
+  return 1;
 }
 
 function myAbilityStats() {
@@ -173,14 +179,15 @@ function refreshSpellbookUi() {
   upXEl.textContent = `${myUp.x}/${SPELL_UNLOCK_MAX}`;
   upZEl.textContent = `${myUp.z}/${SPELL_UNLOCK_MAX}`;
   upSEl.textContent = `${myUp.s}/${SPELL_UNLOCK_MAX}`;
-  const lvlByKind = { hp: myUp.hp, mana: myUp.mana, dmg: myUp.dmg, speed: myUp.speed, cdr: myUp.cdr, q: myUp.q, w: myUp.w, e: myUp.e, r: myUp.r, c: myUp.c, v: myUp.v, x: myUp.x, z: myUp.z, s: myUp.s };
-  const capByKind = { hp: STAT_UP_MAX, mana: STAT_UP_MAX, dmg: STAT_UP_MAX, speed: STAT_UP_MAX, cdr: STAT_UP_MAX, q: SPELL_UNLOCK_MAX, w: SPELL_UNLOCK_MAX, e: SPELL_UNLOCK_MAX, r: SPELL_UNLOCK_MAX, c: SPELL_UNLOCK_MAX, v: SPELL_UNLOCK_MAX, x: SPELL_UNLOCK_MAX, z: SPELL_UNLOCK_MAX, s: SPELL_UNLOCK_MAX };
+  upFEl.textContent = `${myUp.f}/${SPELL_UNLOCK_MAX}`;
+  const lvlByKind = { hp: myUp.hp, mana: myUp.mana, dmg: myUp.dmg, speed: myUp.speed, cdr: myUp.cdr, q: myUp.q, w: myUp.w, e: myUp.e, r: myUp.r, c: myUp.c, v: myUp.v, x: myUp.x, z: myUp.z, s: myUp.s, f: myUp.f };
+  const capByKind = { hp: STAT_UP_MAX, mana: STAT_UP_MAX, dmg: STAT_UP_MAX, speed: STAT_UP_MAX, cdr: STAT_UP_MAX, q: SPELL_UNLOCK_MAX, w: SPELL_UNLOCK_MAX, e: SPELL_UNLOCK_MAX, r: SPELL_UNLOCK_MAX, c: SPELL_UNLOCK_MAX, v: SPELL_UNLOCK_MAX, x: SPELL_UNLOCK_MAX, z: SPELL_UNLOCK_MAX, s: SPELL_UNLOCK_MAX, f: SPELL_UNLOCK_MAX };
   for (const inline of spellbookUpgradeInline) {
     const kind = inline.dataset.upgrade;
     const lvl = lvlByKind[kind] || 0;
     const cost = upgradeCost(kind, lvl);
     const maxLvl = capByKind[kind] || SPELL_UNLOCK_MAX;
-    inline.title = lvl >= maxLvl ? 'MAX' : `Cena: ${cost} Prémie`;
+    inline.title = lvl >= maxLvl ? 'MAX' : 'Vylepšit';
     inline.classList.toggle('disabled', lvl >= maxLvl || myGold < cost);
   }
 
@@ -189,7 +196,7 @@ function refreshSpellbookUi() {
     if (!kind) continue;
     const lvl = lvlByKind[kind] || 0;
     card.classList.toggle('locked', lvl <= 0);
-    card.title = lvl > 0 ? 'Odemčeno' : `Odemknout: ${upgradeCost(kind, 0)} Prémie`;
+    card.title = lvl > 0 ? 'Odemčeno' : 'Odemknout';
   }
 
   renderEquippedSlots();
@@ -220,6 +227,7 @@ function spellRadiusForLevel(kind, level) {
   if (kind === 'v') return V_BASE_RADIUS;
   if (kind === 'x') return X_RANGE;
   if (kind === 'z') return Z_CAST_RANGE;
+  if (kind === 'f') return F_ORBIT_RADIUS;
   return null;
 }
 
@@ -261,10 +269,16 @@ const slotE     = document.getElementById('slot-e');
 const slotEMask = document.getElementById('slot-e-mask');
 const slotR     = document.getElementById('slot-r');
 const slotRMask = document.getElementById('slot-r-mask');
+const slotF     = document.getElementById('slot-f');
+const slotFMask = document.getElementById('slot-f-mask');
 const spellbookPanel = document.getElementById('spellbook-panel');
 const spellbookToggle = document.getElementById('spellbook-toggle');
 const spellbookClose = document.getElementById('spellbook-close');
 const respawnIndicator = document.getElementById('respawn-indicator');
+const homeOfficeScoreEl = document.getElementById('home-office-score');
+const homeOfficeLeaderboardEl = document.getElementById('home-office-leaderboard');
+const homeOfficeGoalEl = document.getElementById('home-office-goal');
+const homeOfficeChannelEl = document.getElementById('home-office-channel');
 const spellbookUpgradeInline = Array.from(document.querySelectorAll('#spellbook-panel .sb-upgrade'));
 const spellCards = Array.from(document.querySelectorAll('#spellbook-panel .sb-spell'));
 const upHpEl = document.getElementById('u-hp');
@@ -281,19 +295,21 @@ const upVEl = document.getElementById('u-v');
 const upXEl = document.getElementById('u-x');
 const upZEl = document.getElementById('u-z');
 const upSEl = document.getElementById('u-s');
+const upFEl = document.getElementById('u-f');
 const rCastWrap = document.getElementById('r-cast-wrap');
 const rCastFill = document.getElementById('r-cast-fill');
 
-const slotEls = { q: slotQ, w: slotW, e: slotE, r: slotR };
-const slotMaskEls = { q: slotQMask, w: slotWMask, e: slotEMask, r: slotRMask };
+const slotEls = { q: slotQ, w: slotW, e: slotE, r: slotR, f: slotF };
+const slotMaskEls = { q: slotQMask, w: slotWMask, e: slotEMask, r: slotRMask, f: slotFMask };
 const slotLabelEls = {
   q: slotQ?.querySelector('.label'),
   w: slotW?.querySelector('.label'),
   e: slotE?.querySelector('.label'),
   r: slotR?.querySelector('.label'),
+  f: slotF?.querySelector('.label'),
 };
 
-const equippedBySlot = { q: 'q', w: null, e: null, r: null };
+const equippedBySlot = { q: 'q', w: null, e: null, r: null, f: null };
 
 const BUFF_DEFS = {
   speed: { key: 'speed', label: 'Rychlost', desc: 'Rychlost pohybu +20%', color: '#4fc3ff' },
@@ -899,8 +915,11 @@ let startHP = 100;
 let startMana = 100;
 let myMana = 100; // optimistic local prediction; corrected by snapshots
 let myGold = 0;
-let myUp = { hp: 0, mana: 0, dmg: 0, speed: 0, cdr: 0, q: 1, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0, s: 0 };
+let myUp = { hp: 0, mana: 0, dmg: 0, speed: 0, cdr: 0, q: 1, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0, s: 0, f: 0 };
 let myStunUntil = 0;
+let myHomeOffice = 0;
+let homeOfficeGoal = 20;
+let winnerId = 0;
 const myBuffs = new Map();
 
 const players = new Map(); // id -> { mesh, name, hp, alive, snapshots: [{t,x,z,facing}], lastSeen }
@@ -909,6 +928,7 @@ const pickups = new Map(); // id -> { kind, x, z, mesh }
 const npcs = new Map(); // id -> { mesh, kind, name, say, sayUntil }
 const beamWarnings = [];
 const activePools = [];
+const activeOrbits = [];
 const activeGroundBursts = [];
 const projectileTargets = [];
 const projectileDogTargets = [];
@@ -925,10 +945,12 @@ let cReadyAt = 0;
 let xReadyAt = 0;
 let zReadyAt = 0;
 let sReadyAt = 0;
+let fReadyAt = 0;
 let aaReadyAt = 0;
 let rCastUntil = 0;
 let qMode = false;
 let rMode = false;
+let homeOfficeChannel = null;
 
 // --- collision helpers ---
 function pointInObstacle(x, z, rad) {
@@ -1077,8 +1099,10 @@ function onMessage(raw) {
       startMana = m.data.startMana || 100;
       myMana = startMana;
       myGold = 0;
-      myUp = { hp: 0, mana: 0, dmg: 0, speed: 0, cdr: 0, q: 1, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0, s: 0 };
+      myUp = { hp: 0, mana: 0, dmg: 0, speed: 0, cdr: 0, q: 1, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0, s: 0, f: 0 };
       myStunUntil = 0;
+      myHomeOffice = 0;
+      winnerId = 0;
       refreshSpellbookUi();
       break;
 
@@ -1089,6 +1113,10 @@ function onMessage(raw) {
     case 'fire':
       if (m.data.kind === 'pool_cast') {
         spawnPoolEffect(m.data.owner, m.data.dx || V_BASE_RADIUS, (m.data.dz || 5) * 1000);
+        break;
+      }
+      if (m.data.kind === 'f_orbit') {
+        spawnOrbitEffect(m.data.owner, m.data.dx || F_ORBIT_RADIUS, (m.data.dz || (F_ORBIT_DURATION_MS / 1000)) * 1000);
         break;
       }
       if (m.data.kind === 'reditel_beam_warn') {
@@ -1117,6 +1145,8 @@ function onMessage(raw) {
 }
 
 function handleSnapshot(snap) {
+  homeOfficeGoal = snap.homeOfficeGoal || 20;
+  winnerId = snap.winnerId || 0;
   const seenIds = new Set();
   for (const p of snap.players) {
     seenIds.add(p.id);
@@ -1157,6 +1187,10 @@ function handleSnapshot(snap) {
     pl.upX = p.upX || 0;
     pl.upZ = p.upZ || 0;
     pl.upS = p.upS || 0;
+    pl.upF = p.upF || 0;
+    pl.homeOffice = p.homeOffice || 0;
+    pl.channelPickup = p.channelPickup || 0;
+    pl.channelUntil = p.channelUntil || 0;
     pl.buffs = Array.isArray(p.buffs) ? p.buffs : [];
     pl.stunUntil = p.stunUntil || 0;
     pl.respawnAt = p.respawnAt || 0;
@@ -1237,7 +1271,22 @@ function handleSnapshot(snap) {
       x: me.upX || 0,
       z: me.upZ || 0,
       s: me.upS || 0,
+      f: me.upF || 0,
     };
+    myHomeOffice = me.homeOffice || 0;
+    if (homeOfficeGoalEl) {
+      const winnerText = winnerId ? (winnerId === myId ? ' (Vyhral jsi)' : ' (Konec)') : '';
+      homeOfficeGoalEl.textContent = `/ ${homeOfficeGoal}${winnerText}`;
+    }
+    if (homeOfficeScoreEl) {
+      const winnerText = winnerId ? (winnerId === myId ? ' (Vyhral jsi)' : ' (Konec)') : '';
+      homeOfficeScoreEl.textContent = `${myHomeOffice} / ${homeOfficeGoal}${winnerText}`;
+    }
+    renderHomeOfficeLeaderboard(snap.players);
+    if (homeOfficeChannel && (!me.channelPickup || me.channelPickup !== homeOfficeChannel.pickupId)) {
+      homeOfficeChannel = null;
+      if (homeOfficeChannelEl) homeOfficeChannelEl.hidden = true;
+    }
     setMyBuffs(me.buffs || []);
     myStunUntil = me.stunUntil || 0;
     mpText.textContent = `${Math.round(myMana)}/${maxMana}`;
@@ -1441,6 +1490,10 @@ function castEquipped(slotKey) {
   }
   if (spellKind === 's') {
     tryCastShield();
+    return;
+  }
+  if (spellKind === 'f') {
+    tryCastF();
   }
 }
 
@@ -1454,6 +1507,7 @@ function spellCooldownRatio(kind, now, statsNow) {
   if (kind === 'x') return Math.max(0, Math.min(1, Math.max(0, xReadyAt - now) / cooldownMs(X_COOLDOWN_MS, statsNow)));
   if (kind === 'z') return Math.max(0, Math.min(1, Math.max(0, zReadyAt - now) / cooldownMs(Z_COOLDOWN_MS, statsNow)));
   if (kind === 's') return Math.max(0, Math.min(1, Math.max(0, sReadyAt - now) / cooldownMs(S_COOLDOWN_MS, statsNow)));
+  if (kind === 'f') return Math.max(0, Math.min(1, Math.max(0, fReadyAt - now) / cooldownMs(F_COOLDOWN_MS, statsNow)));
   return 0;
 }
 
@@ -1470,6 +1524,7 @@ function canCastSpell(kind, alive, now, statsNow = myAbilityStats()) {
   if (kind === 'x') return myUp.x > 0 && myMana >= X_COST && now >= xReadyAt;
   if (kind === 'z') return myUp.z > 0 && myMana >= Z_COST && now >= zReadyAt;
   if (kind === 's') return myUp.s > 0 && myMana >= S_COST && now >= sReadyAt;
+  if (kind === 'f') return myUp.f > 0 && myMana >= F_COST && now >= fReadyAt;
   return false;
 }
 
@@ -1488,9 +1543,12 @@ window.addEventListener('keydown', e => {
   } else if (e.code === 'KeyR') {
     e.preventDefault();
     castEquipped('r');
+  } else if (e.code === 'KeyF') {
+    e.preventDefault();
+    castEquipped('f');
   } else if (e.code === 'KeyB') {
     e.preventDefault();
-    spellbookPanel.hidden = !spellbookPanel.hidden;
+    toggleSpellbook();
   } else if (e.code === 'Space') {
     e.preventDefault();
     centerCameraOnMe();
@@ -1503,14 +1561,26 @@ slotQ.addEventListener('click', () => castEquipped('q'));
 slotW.addEventListener('click', () => castEquipped('w'));
 slotE.addEventListener('click', () => castEquipped('e'));
 slotR.addEventListener('click', () => castEquipped('r'));
+slotF?.addEventListener('click', () => castEquipped('f'));
 
 spellbookToggle?.addEventListener('click', () => {
-  spellbookPanel.hidden = !spellbookPanel.hidden;
+  toggleSpellbook();
 });
 
 spellbookClose?.addEventListener('click', () => {
-  spellbookPanel.hidden = true;
+  setSpellbookOpen(false);
 });
+
+function setSpellbookOpen(open) {
+  if (!spellbookPanel) return;
+  spellbookPanel.hidden = !open;
+  if (spellbookToggle) spellbookToggle.classList.toggle('open', open);
+}
+
+function toggleSpellbook() {
+  if (!spellbookPanel) return;
+  setSpellbookOpen(spellbookPanel.hidden);
+}
 
 for (const inline of spellbookUpgradeInline) {
   inline.addEventListener('click', () => {
@@ -1581,6 +1651,7 @@ canvas.addEventListener('mousemove', e => {
 });
 canvas.addEventListener('mousedown', e => {
   if (e.button === 0) {
+    if (tryStartHomeOfficeChannelByClick(e.clientX, e.clientY)) return;
     if (qMode) {
       tryFireQ();
     } else {
@@ -1639,7 +1710,10 @@ function setupSpawn() {
   xReadyAt = 0;
   zReadyAt = 0;
   sReadyAt = 0;
+  fReadyAt = 0;
   myStunUntil = 0;
+  homeOfficeChannel = null;
+  if (homeOfficeChannelEl) homeOfficeChannelEl.hidden = true;
   chargeAnim.active = false;
   qMode = false;
   rMode = false;
@@ -1874,6 +1948,21 @@ function tryCastShield() {
   send({ type: 'cast', data: { kind: 's' } });
 }
 
+function tryCastF() {
+  const me = players.get(myId);
+  if (!me || !me.alive) return;
+  if (Date.now() < myStunUntil) return;
+  if ((myUp.f || 0) <= 0) return;
+  const now = performance.now();
+  if (now < fReadyAt) return;
+  if (myMana < F_COST) return;
+
+  const stats = myAbilityStats();
+  fReadyAt = now + cooldownMs(F_COOLDOWN_MS, stats);
+  spawnOrbitEffect(myId, F_ORBIT_RADIUS, F_ORBIT_DURATION_MS);
+  send({ type: 'cast', data: { kind: 'f' } });
+}
+
 function tryAutoAttack() {
   const me = players.get(myId);
   if (!me || !me.alive) return;
@@ -2040,6 +2129,59 @@ function updatePools(now) {
     }
     const t = (now - p.startAt) * 0.01;
     p.ring.material.opacity = 0.32 + 0.13 * (0.5 + 0.5 * Math.sin(t));
+  }
+}
+
+function spawnOrbitEffect(ownerId, radius, durationMS) {
+  for (let i = activeOrbits.length - 1; i >= 0; i--) {
+    if (activeOrbits[i].ownerId === ownerId) {
+      for (const m of activeOrbits[i].meshes) {
+        scene.remove(m);
+        m.geometry.dispose();
+        m.material.dispose();
+      }
+      activeOrbits.splice(i, 1);
+    }
+  }
+  const meshes = [];
+  for (let i = 0; i < 3; i++) {
+    const orb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.42, 16, 12),
+      new THREE.MeshStandardMaterial({ color: 0xa8f0ff, emissive: 0x8ce8ff, emissiveIntensity: 0.95 })
+    );
+    scene.add(orb);
+    meshes.push(orb);
+  }
+  activeOrbits.push({ ownerId, radius, startAt: performance.now(), endAt: performance.now() + durationMS, meshes });
+}
+
+function updateOrbits(now) {
+  for (let i = activeOrbits.length - 1; i >= 0; i--) {
+    const o = activeOrbits[i];
+    if (now >= o.endAt) {
+      for (const m of o.meshes) {
+        scene.remove(m);
+        m.geometry.dispose();
+        m.material.dispose();
+      }
+      activeOrbits.splice(i, 1);
+      continue;
+    }
+    let ox = myPos.x;
+    let oz = myPos.z;
+    if (o.ownerId !== myId) {
+      const p = players.get(o.ownerId);
+      if (p) {
+        ox = p.mesh.position.x;
+        oz = p.mesh.position.z;
+      }
+    }
+    const t = now * 0.003;
+    for (let k = 0; k < o.meshes.length; k++) {
+      const a = t + k * (Math.PI * 2 / o.meshes.length);
+      const m = o.meshes[k];
+      m.position.set(ox + Math.sin(a) * o.radius, 1.0, oz + Math.cos(a) * o.radius);
+    }
   }
 }
 
@@ -2293,13 +2435,15 @@ function spawnPickupMesh(pk) {
     buff_hp: 0xff6e8a,
     buff_mana: 0x6bb7ff,
     buff_dmg: 0xff9b5c,
+    home_office: 0xc8f08a,
   };
   const color = colorByKind[pk.kind] || (isHP ? 0xff5d8c : (isGold ? 0xffd45b : 0x56d9ff));
   const baseOpacity = 0.55;
   const g = new THREE.Group();
   const orbMat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.85, transparent: true, opacity: 1.0 });
+  const isHomeOffice = pk.kind === 'home_office';
   const orb = new THREE.Mesh(
-    new THREE.SphereGeometry(0.32, 16, 12),
+    new THREE.SphereGeometry(isHomeOffice ? 0.4 : 0.32, 16, 12),
     orbMat
   );
   orb.position.y = 0.5;
@@ -2345,6 +2489,8 @@ function spawnPickupMesh(pk) {
     g.add(sp);
   }
   g.position.set(pk.x, 0, pk.z);
+  orb.userData.pickupId = pk.id;
+  orb.userData.pickupKind = pk.kind;
   scene.add(g);
   pickups.set(pk.id, {
     id: pk.id,
@@ -2358,7 +2504,69 @@ function spawnPickupMesh(pk) {
     orbMat,
     ringMat,
     light,
+    orb,
   });
+}
+
+function stopHomeOfficeChannel() {
+  if (!homeOfficeChannel) return;
+  send({ type: 'channel', data: { id: homeOfficeChannel.pickupId, start: false } });
+  homeOfficeChannel = null;
+  if (homeOfficeChannelEl) homeOfficeChannelEl.hidden = true;
+}
+
+function renderHomeOfficeLeaderboard(snapPlayers) {
+  if (!homeOfficeLeaderboardEl || !Array.isArray(snapPlayers)) return;
+  const rows = snapPlayers
+    .map(p => ({ id: p.id, name: p.name || `p${p.id}`, score: p.homeOffice || 0 }))
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  const topScore = rows.length ? rows[0].score : 0;
+  let html = '';
+  for (const r of rows) {
+    const cls = [];
+    if (r.id === myId) cls.push('me');
+    if (r.score > 0 && r.score === topScore) cls.push('lead');
+    const safeName = String(r.name).replace(/[&<>"']/g, c => (
+      c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '"' ? '&quot;' : '&#39;'
+    ));
+    html += `<li class="${cls.join(' ')}"><span class="ho-name">${safeName}</span><span class="ho-count">${r.score}</span></li>`;
+  }
+  homeOfficeLeaderboardEl.innerHTML = html;
+}
+
+function tryStartHomeOfficeChannelByClick(clientX, clientY) {
+  const me = players.get(myId);
+  if (!me || !me.alive) return false;
+  if (winnerId) return false;
+
+  const r = canvas.getBoundingClientRect();
+  const ndcX = ((clientX - r.left) / r.width) * 2 - 1;
+  const ndcY = -((clientY - r.top) / r.height) * 2 + 1;
+  raycaster.setFromCamera({ x: ndcX, y: ndcY }, camera);
+
+  const orbs = [];
+  for (const pk of pickups.values()) {
+    if (pk.kind === 'home_office' && pk.orb) orbs.push(pk.orb);
+  }
+  if (!orbs.length) return false;
+  const hits = raycaster.intersectObjects(orbs, false);
+  if (!hits.length) return false;
+
+  const hitOrb = hits[0].object;
+  const pickupId = hitOrb.userData.pickupId;
+  const pk = pickups.get(pickupId);
+  if (!pk) return false;
+  const dx = pk.x - myPos.x;
+  const dz = pk.z - myPos.z;
+  if (dx * dx + dz * dz > (PICKUP_RADIUS + PLAYER_RADIUS + 1.0) ** 2) return false;
+
+  homeOfficeChannel = { pickupId, startedAt: performance.now(), startX: myPos.x, startZ: myPos.z };
+  send({ type: 'channel', data: { id: pickupId, start: true } });
+  if (homeOfficeChannelEl) {
+    homeOfficeChannelEl.hidden = false;
+    homeOfficeChannelEl.textContent = 'Channeling 5s';
+  }
+  return true;
 }
 
 function removePickup(id) {
@@ -2391,8 +2599,25 @@ function updatePickups() {
   }
   // collection check
   const me = players.get(myId);
-  if (!me || !me.alive) return;
+  if (!me || !me.alive) {
+    if (homeOfficeChannel) stopHomeOfficeChannel();
+    return;
+  }
+  if (homeOfficeChannel) {
+    const dxm = myPos.x - homeOfficeChannel.startX;
+    const dzm = myPos.z - homeOfficeChannel.startZ;
+    if (dxm * dxm + dzm * dzm > 0.45 * 0.45 || Date.now() < myStunUntil) {
+      stopHomeOfficeChannel();
+    } else {
+      const remain = Math.max(0, 5000 - (performance.now() - homeOfficeChannel.startedAt));
+      if (homeOfficeChannelEl) {
+        homeOfficeChannelEl.hidden = false;
+        homeOfficeChannelEl.textContent = `Channeling ${Math.ceil(remain / 1000)}s`;
+      }
+    }
+  }
   for (const pk of pickups.values()) {
+    if (pk.kind === 'home_office') continue;
     const dx = pk.x - myPos.x;
     const dz = pk.z - myPos.z;
     if (dx * dx + dz * dz <= (PICKUP_RADIUS + PLAYER_RADIUS) ** 2) {
@@ -2612,6 +2837,7 @@ function loop(t) {
   updateGroundBursts(performance.now());
   updateBeamWarnings(performance.now());
   updatePools(performance.now());
+  updateOrbits(performance.now());
   updatePickups();
   updateNpcTalkVisibility();
   updateActiveBuffIcons(Date.now());

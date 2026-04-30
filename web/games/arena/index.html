@@ -25,6 +25,12 @@
         <div id="buff-status-text" class="buff-status-text">Žádné aktivní efekty</div>
       </div>
 
+      <div id="home-office-objective" class="home-office-objective">
+        <div class="ho-title">Home Office <span class="ho-goal" id="home-office-goal">/ 20</span></div>
+        <ul id="home-office-leaderboard" class="ho-leaderboard"></ul>
+        <div id="home-office-channel" class="ho-channel" hidden>Channeling...</div>
+      </div>
+
       <div class="hp-center-panel">
         <div id="buff-w-indicator" class="buff-indicator" hidden>Sprint</div>
         <div id="r-cast-wrap" class="cast-bar-wrap" hidden>
@@ -64,38 +70,43 @@
           <div class="label">Prázdné</div>
           <div class="cd-mask" id="slot-r-mask"></div>
         </div>
+        <div class="ability-slot" id="slot-f" data-slot="f">
+          <div class="key">F</div>
+          <div class="label">Prázdné</div>
+          <div class="cd-mask" id="slot-f-mask"></div>
+        </div>
       </div>
 
       <div class="gold-floating">Prémie: <span id="gold-text">0</span></div>
-      <button id="spellbook-toggle" class="spellbook-toggle">Kouzla</button>
+      <button id="spellbook-toggle" class="spellbook-toggle" type="button" aria-label="Kouzla">
+        <span class="sb-toggle-glyph" aria-hidden="true">‹</span>
+      </button>
 
       <div class="spellbook-panel" id="spellbook-panel" hidden>
-        <div class="sb-head">
-          <div class="sb-meta">Staty + Odemčení (2 Prémie)</div>
-          <button id="spellbook-close" class="sb-close" type="button" aria-label="Zavřít panel">&times;</button>
+        <div class="sb-stats">
+          <button class="sb-stat sb-upgrade sb-up-hp" data-upgrade="hp" type="button">
+            <span class="sb-name">HP</span>
+            <span class="sb-lvl" id="u-hp">0/10</span>
+          </button>
+          <button class="sb-stat sb-upgrade sb-up-mana" data-upgrade="mana" type="button">
+            <span class="sb-name">MP</span>
+            <span class="sb-lvl" id="u-mana">0/10</span>
+          </button>
+          <button class="sb-stat sb-upgrade" data-upgrade="dmg" type="button">
+            <span class="sb-name">Poškození</span>
+            <span class="sb-lvl" id="u-dmg">0/10</span>
+          </button>
+          <button class="sb-stat sb-upgrade" data-upgrade="speed" type="button">
+            <span class="sb-name">Rychlost</span>
+            <span class="sb-lvl" id="u-speed">0/10</span>
+          </button>
+          <button class="sb-stat sb-upgrade" data-upgrade="cdr" type="button">
+            <span class="sb-name">Cooldown</span>
+            <span class="sb-lvl" id="u-cdr">0/10</span>
+          </button>
         </div>
 
         <div class="sb-grid">
-          <button class="sb-spell sb-upgrade sb-up-hp" data-upgrade="hp" type="button">
-            <div class="sb-spell-top"><span class="sb-name">HP</span></div>
-            <div class="sb-lvl" id="u-hp">0/10</div>
-          </button>
-          <button class="sb-spell sb-upgrade sb-up-mana" data-upgrade="mana" type="button">
-            <div class="sb-spell-top"><span class="sb-name">MP</span></div>
-            <div class="sb-lvl" id="u-mana">0/10</div>
-          </button>
-          <button class="sb-spell sb-upgrade" data-upgrade="dmg" type="button">
-            <div class="sb-spell-top"><span class="sb-name">Poškození</span></div>
-            <div class="sb-lvl" id="u-dmg">0/10</div>
-          </button>
-          <button class="sb-spell sb-upgrade" data-upgrade="speed" type="button">
-            <div class="sb-spell-top"><span class="sb-name">Rychlost</span></div>
-            <div class="sb-lvl" id="u-speed">0/10</div>
-          </button>
-          <button class="sb-spell sb-upgrade" data-upgrade="cdr" type="button">
-            <div class="sb-spell-top"><span class="sb-name">Cooldown</span></div>
-            <div class="sb-lvl" id="u-cdr">0/10</div>
-          </button>
           <div class="sb-spell" data-spell="q" draggable="true">
             <div class="sb-spell-top"><span class="sb-name">Salva</span></div>
             <div class="sb-lvl" id="u-q">0/1</div>
@@ -131,6 +142,10 @@
           <div class="sb-spell" data-spell="s" draggable="true">
             <div class="sb-spell-top"><span class="sb-name">Stit</span></div>
             <div class="sb-lvl" id="u-s">0/1</div>
+          </div>
+          <div class="sb-spell" data-spell="f" draggable="true">
+            <div class="sb-spell-top"><span class="sb-name">Orbit</span></div>
+            <div class="sb-lvl" id="u-f">0/1</div>
           </div>
         </div>
       </div>

@@ -34,7 +34,7 @@ const (
 	hpRegenPctPerSec   = 0.05
 	manaRegenPctPerSec = 0.05
 
-	pickupSpawnMS          = 6000
+	pickupSpawnMS          = 8500
 	maxPickups             = 5
 	maxBuffPickups         = 1
 	buffSpawnMS            = 60000
@@ -91,7 +91,7 @@ const (
 	reditelShotCDMS        = 140
 	reditelBurstMS         = 3000
 	reditelPauseMS         = 1700
-	reditelGoldDropMS      = 13000
+	reditelGoldDropMS      = 26000
 	reditelBeamCDMS        = 9000
 	reditelBeamSpeed       = 78.0
 	reditelBeamRange       = 44.0
@@ -133,11 +133,24 @@ const (
 	X_COST = 45
 	Z_COST = 50
 	S_COST = 40
+	F_COST = 45
+
+	fOrbitDurationMS = 6000
+	fOrbitTickMS     = 250
+	fOrbitRadius     = 5.5
+	fOrbitHitRadius  = 0.95
+	fOrbitBaseDamage = 10
 
 	shieldDurationMS = 5000
 	shieldPctMaxHP   = 0.30
 
 	spawnInvulnMS = 2000
+
+	homeOfficeGoal          = 20
+	homeOfficeChannelMS     = 5000
+	homeOfficeRespawnMS     = 9000
+	homeOfficeInteractRange = 2.1
+	homeOfficeMoveBreak     = 0.45
 
 	vBaseRadius   = 5.7
 	vRadStep      = 0.22
@@ -183,14 +196,15 @@ func manaCost(kind string) int {
 		return Z_COST
 	case "s":
 		return S_COST
+	case "f":
+		return F_COST
 	}
 	return 0
 }
 
 func upgradeCost(kind string, _ int) int {
 	_ = kind
-	// Slightly cheaper upgrades after adding temporary buff pickups.
-	return 2
+	return 1
 }
 
 type vec2 struct {
@@ -199,38 +213,42 @@ type vec2 struct {
 }
 
 type playerState struct {
-	ID        uint64            `json:"id"`
-	Name      string            `json:"name"`
-	Model     int               `json:"model,omitempty"`
-	X         float64           `json:"x"`
-	Z         float64           `json:"z"`
-	Facing    float64           `json:"facing"`
-	HP        int               `json:"hp"`
-	Mana      int               `json:"mana"`
-	MaxHP     int               `json:"maxHp"`
-	MaxMana   int               `json:"maxMana"`
-	Gold      int               `json:"gold"`
-	UpHP      int               `json:"upHp"`
-	UpMana    int               `json:"upMana"`
-	UpDmg     int               `json:"upDmg"`
-	UpSpeed   int               `json:"upSpeed"`
-	UpCDR     int               `json:"upCdr"`
-	UpQ       int               `json:"upQ"`
-	UpW       int               `json:"upW"`
-	UpE       int               `json:"upE"`
-	UpR       int               `json:"upR"`
-	UpC       int               `json:"upC"`
-	UpV       int               `json:"upV"`
-	UpX       int               `json:"upX"`
-	UpZ       int               `json:"upZ"`
-	UpS       int               `json:"upS"`
-	Shield    int               `json:"shield,omitempty"`
-	ShieldT   int64             `json:"shieldUntil,omitempty"`
-	InvulnT   int64             `json:"invulnUntil,omitempty"`
-	Buffs     []playerBuffState `json:"buffs,omitempty"`
-	Alive     bool              `json:"alive"`
-	StunUntil int64             `json:"stunUntil,omitempty"`
-	RespawnT  int64             `json:"respawnAt,omitempty"` // unix ms; 0 if alive
+	ID            uint64            `json:"id"`
+	Name          string            `json:"name"`
+	Model         int               `json:"model,omitempty"`
+	X             float64           `json:"x"`
+	Z             float64           `json:"z"`
+	Facing        float64           `json:"facing"`
+	HP            int               `json:"hp"`
+	Mana          int               `json:"mana"`
+	MaxHP         int               `json:"maxHp"`
+	MaxMana       int               `json:"maxMana"`
+	Gold          int               `json:"gold"`
+	UpHP          int               `json:"upHp"`
+	UpMana        int               `json:"upMana"`
+	UpDmg         int               `json:"upDmg"`
+	UpSpeed       int               `json:"upSpeed"`
+	UpCDR         int               `json:"upCdr"`
+	UpQ           int               `json:"upQ"`
+	UpW           int               `json:"upW"`
+	UpE           int               `json:"upE"`
+	UpR           int               `json:"upR"`
+	UpC           int               `json:"upC"`
+	UpV           int               `json:"upV"`
+	UpX           int               `json:"upX"`
+	UpZ           int               `json:"upZ"`
+	UpS           int               `json:"upS"`
+	UpF           int               `json:"upF"`
+	HomeOffice    int               `json:"homeOffice"`
+	Shield        int               `json:"shield,omitempty"`
+	ShieldT       int64             `json:"shieldUntil,omitempty"`
+	InvulnT       int64             `json:"invulnUntil,omitempty"`
+	ChannelPickup uint64            `json:"channelPickup,omitempty"`
+	ChannelUntil  int64             `json:"channelUntil,omitempty"`
+	Buffs         []playerBuffState `json:"buffs,omitempty"`
+	Alive         bool              `json:"alive"`
+	StunUntil     int64             `json:"stunUntil,omitempty"`
+	RespawnT      int64             `json:"respawnAt,omitempty"` // unix ms; 0 if alive
 }
 
 type playerBuffState struct {
@@ -391,7 +409,12 @@ type cPickup struct {
 }
 
 type cUpgrade struct {
-	Kind string `json:"kind"` // "hp","mana","dmg","speed","cdr","q","w","e","r","c","v","x","z","s"
+	Kind string `json:"kind"` // "hp","mana","dmg","speed","cdr","q","w","e","r","c","v","x","z","s","f"
+}
+
+type cChannel struct {
+	ID    uint64 `json:"id"`
+	Start bool   `json:"start"`
 }
 
 // --- outbound server messages ---
@@ -413,10 +436,12 @@ type sWelcome struct {
 }
 
 type sSnapshot struct {
-	T       int64         `json:"t"` // unix ms
-	Players []playerState `json:"players"`
-	Pickups []pickup      `json:"pickups"`
-	Npcs    []npcState    `json:"npcs"`
+	T              int64         `json:"t"` // unix ms
+	Players        []playerState `json:"players"`
+	Pickups        []pickup      `json:"pickups"`
+	Npcs           []npcState    `json:"npcs"`
+	HomeOfficeGoal int           `json:"homeOfficeGoal"`
+	WinnerID       uint64        `json:"winnerId,omitempty"`
 }
 
 type sFire struct {
@@ -468,26 +493,31 @@ type ArenaHub struct {
 	broadcast  chan []byte
 
 	// inbound game events (hub-owned mutations)
-	stateUpd chan stateUpdate
-	hitEvt   chan hitEvent
-	castEvt  chan castEvent
-	fireEvt  chan fireEvent
-	pickEvt  chan pickEvent
-	upgEvt   chan upgradeEvent
+	stateUpd   chan stateUpdate
+	hitEvt     chan hitEvent
+	castEvt    chan castEvent
+	fireEvt    chan fireEvent
+	pickEvt    chan pickEvent
+	upgEvt     chan upgradeEvent
+	channelEvt chan channelEvent
 
-	clients    map[uint64]*client
-	nextID     atomic.Uint64
-	pickups    map[uint64]*pickup
-	nextPickID atomic.Uint64
-	lastPickup time.Time
-	lastBuff   time.Time
-	lastTick   time.Time
-	respawnAt  map[uint64]int64
-	auras      map[uint64]*playerAura
-	projKinds  map[uint64]map[uint64]string
-	npcs       map[uint64]*npcRuntime
-	npcProjs   map[uint64]*npcProjectile
-	nextNpcPID atomic.Uint64
+	clients             map[uint64]*client
+	nextID              atomic.Uint64
+	pickups             map[uint64]*pickup
+	nextPickID          atomic.Uint64
+	lastPickup          time.Time
+	lastBuff            time.Time
+	lastTick            time.Time
+	respawnAt           map[uint64]int64
+	auras               map[uint64]*playerAura
+	projKinds           map[uint64]map[uint64]string
+	npcs                map[uint64]*npcRuntime
+	npcProjs            map[uint64]*npcProjectile
+	nextNpcPID          atomic.Uint64
+	orbitals            map[uint64]*playerOrbit
+	channeling          map[uint64]*homeOfficeChannel
+	homeOfficeRespawnAt int64
+	winnerID            uint64
 }
 
 type playerAura struct {
@@ -519,6 +549,25 @@ type castEvent struct {
 	x, z   float64
 }
 
+type channelEvent struct {
+	player uint64
+	pickup uint64
+	start  bool
+}
+
+type playerOrbit struct {
+	owner  uint64
+	endMS  int64
+	nextMS int64
+}
+
+type homeOfficeChannel struct {
+	pickupID uint64
+	startMS  int64
+	baseX    float64
+	baseZ    float64
+}
+
 type fireEvent struct {
 	shooter uint64
 	pid     uint64
@@ -548,6 +597,7 @@ func NewArenaHub() *ArenaHub {
 		fireEvt:    make(chan fireEvent, 256),
 		pickEvt:    make(chan pickEvent, 256),
 		upgEvt:     make(chan upgradeEvent, 256),
+		channelEvt: make(chan channelEvent, 256),
 		clients:    make(map[uint64]*client),
 		pickups:    make(map[uint64]*pickup),
 		lastTick:   time.Now(),
@@ -556,6 +606,8 @@ func NewArenaHub() *ArenaHub {
 		projKinds:  make(map[uint64]map[uint64]string),
 		npcs:       make(map[uint64]*npcRuntime),
 		npcProjs:   make(map[uint64]*npcProjectile),
+		orbitals:   make(map[uint64]*playerOrbit),
+		channeling: make(map[uint64]*homeOfficeChannel),
 	}
 }
 
@@ -681,6 +733,8 @@ func (h *ArenaHub) Run() {
 				delete(h.clients, c.id)
 				delete(h.auras, c.id)
 				delete(h.projKinds, c.id)
+				delete(h.orbitals, c.id)
+				delete(h.channeling, c.id)
 				close(c.send)
 				h.broadcastJSON(sMsg{Type: "leave", Data: sLeave{ID: c.id}})
 			}
@@ -714,6 +768,9 @@ func (h *ArenaHub) Run() {
 		case ev := <-h.upgEvt:
 			h.applyUpgrade(ev)
 
+		case ev := <-h.channelEvt:
+			h.applyChannel(ev)
+
 		case <-ticker.C:
 			now := time.Now()
 			dt := now.Sub(h.lastTick).Seconds()
@@ -728,6 +785,8 @@ func (h *ArenaHub) Run() {
 			h.maybeSpawnBuffPickup(now)
 			h.updateNPCs(now, dt)
 			h.updateAuras(now.UnixMilli())
+			h.updateOrbits(now.UnixMilli())
+			h.updateHomeOffice(now.UnixMilli())
 			h.updateNPCProjectiles(dt)
 			h.sendSnapshot()
 		}
@@ -990,7 +1049,9 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 
 		if n.state.Kind == "reditel" {
 			if nowMS >= n.nextDropMS {
-				h.spawnPickup("gold", n.state.X, n.state.Z, true, now)
+				if rand.Intn(100) < 50 {
+					h.spawnPickup("gold", n.state.X, n.state.Z, true, now)
+				}
 				n.nextDropMS = nowMS + reditelGoldDropMS + int64(rand.Intn(5000))
 			}
 			if n.beamFireMS > 0 {
@@ -1468,8 +1529,23 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 			n.nextDirMS = nowMS + 1400 + int64(rand.Intn(2600))
 		}
 
-		n.state.X += n.vx * dt
-		n.state.Z += n.vz * dt
+		nx := n.state.X + n.vx*dt
+		nz := n.state.Z + n.vz*dt
+		npcRad := 0.55
+		if n.state.Kind == "reditel" {
+			npcRad = 0.7
+		}
+		nx, nz = resolveObstacleMove(n.state.X, n.state.Z, nx, nz, npcRad)
+		if nx == n.state.X && n.vx != 0 {
+			n.vx = 0
+			n.nextDirMS = 0
+		}
+		if nz == n.state.Z && n.vz != 0 {
+			n.vz = 0
+			n.nextDirMS = 0
+		}
+		n.state.X = nx
+		n.state.Z = nz
 		if n.state.X < -mapHalfX+1 || n.state.X > mapHalfX-1 {
 			n.vx = -n.vx
 			n.state.X = clamp(n.state.X, -mapHalfX+1, mapHalfX-1)
@@ -1588,6 +1664,10 @@ func (h *ArenaHub) updateNPCProjectiles(dt float64) {
 			delete(h.npcProjs, id)
 			continue
 		}
+		if pointInObstacle(pr.X, pr.Z, pr.Rad) {
+			delete(h.npcProjs, id)
+			continue
+		}
 
 		// Slightly tighter hit radius vs players than visual capsule so
 		// near-misses on the client don't register as hits server-side.
@@ -1683,12 +1763,12 @@ func (h *ArenaHub) maybeSpawnPickup(now time.Time) {
 
 	h.lastPickup = now
 
-	kind := "gold"
+	kind := "mana"
 	kindRoll := rand.Intn(10)
 	if kindRoll == 0 {
+		kind = "gold"
+	} else if kindRoll == 1 {
 		kind = "hp"
-	} else if kindRoll <= 4 {
-		kind = "mana"
 	}
 	h.spawnPickup(kind, 0, 0, false, now)
 }
@@ -1732,6 +1812,10 @@ func (h *ArenaHub) spawnPickupValueWithLife(kind string, x, z float64, exact boo
 	if value <= 0 {
 		value = 1
 	}
+	expireMS := int64(0)
+	if lifeMS > 0 {
+		expireMS = nowMS + lifeMS
+	}
 	p := &pickup{
 		ID:        id,
 		Kind:      kind,
@@ -1739,7 +1823,7 @@ func (h *ArenaHub) spawnPickupValueWithLife(kind string, x, z float64, exact boo
 		X:         clamp(px, -mapHalfX+1, mapHalfX-1),
 		Z:         clamp(pz, -mapHalfZ+1, mapHalfZ-1),
 		SpawnAtMS: nowMS,
-		ExpireMS:  nowMS + lifeMS,
+		ExpireMS:  expireMS,
 	}
 	h.pickups[id] = p
 }
@@ -1794,6 +1878,10 @@ func (h *ArenaHub) applyCast(ev castEvent) {
 		c.mu.Unlock()
 		return
 	}
+	if ev.kind == "f" && c.state.UpF <= 0 {
+		c.mu.Unlock()
+		return
+	}
 	if c.state.Mana < cost {
 		c.mu.Unlock()
 		return
@@ -1805,7 +1893,7 @@ func (h *ArenaHub) applyCast(ev castEvent) {
 		c.state.Z = clamp(ev.z, -mapHalfZ, mapHalfZ)
 	}
 
-	if ev.kind != "c" && ev.kind != "v" && ev.kind != "x" && ev.kind != "z" && ev.kind != "s" {
+	if ev.kind != "c" && ev.kind != "v" && ev.kind != "x" && ev.kind != "z" && ev.kind != "s" && ev.kind != "f" {
 		c.mu.Unlock()
 		return
 	}
@@ -1837,6 +1925,12 @@ func (h *ArenaHub) applyCast(ev castEvent) {
 			c.state.ShieldT = nowMS + shieldDurationMS
 		}
 		c.mu.Unlock()
+		return
+	}
+
+	if ev.kind == "f" {
+		h.orbitals[owner] = &playerOrbit{owner: owner, endMS: nowMS + fOrbitDurationMS, nextMS: nowMS}
+		h.broadcastJSON(sMsg{Type: "fire", Data: sFire{Owner: owner, PID: 0, OX: sx, OZ: sz, DX: fOrbitRadius, DZ: float64(fOrbitDurationMS) / 1000.0, Kind: "f_orbit", T: nowMS}})
 		return
 	}
 
@@ -1929,6 +2023,10 @@ func (h *ArenaHub) applyFire(ev fireEvent) {
 		c.mu.Unlock()
 		return
 	}
+	if ev.kind == "f" && c.state.UpF <= 0 {
+		c.mu.Unlock()
+		return
+	}
 	if !c.state.Alive || c.state.Mana < cost {
 		c.mu.Unlock()
 		return
@@ -2002,7 +2100,58 @@ func (h *ArenaHub) applyPickup(ev pickEvent) {
 		c.state.Gold += v
 	case "buff_speed", "buff_hp", "buff_mana", "buff_dmg":
 		h.applyBuffPickupLocked(c, p.Kind, time.Now().UnixMilli())
+	case "home_office":
+		return
 	}
+}
+
+func (h *ArenaHub) cancelHomeOfficeChannel(playerID uint64) {
+	ch, ok := h.channeling[playerID]
+	if !ok {
+		return
+	}
+	_ = ch
+	delete(h.channeling, playerID)
+	if c, ok := h.clients[playerID]; ok {
+		c.mu.Lock()
+		c.state.ChannelPickup = 0
+		c.state.ChannelUntil = 0
+		c.mu.Unlock()
+	}
+}
+
+func (h *ArenaHub) applyChannel(ev channelEvent) {
+	c, ok := h.clients[ev.player]
+	if !ok {
+		return
+	}
+	if !ev.start {
+		h.cancelHomeOfficeChannel(ev.player)
+		return
+	}
+	if h.winnerID != 0 {
+		return
+	}
+	p, ok := h.pickups[ev.pickup]
+	if !ok || p.Kind != "home_office" {
+		return
+	}
+	nowMS := time.Now().UnixMilli()
+	c.mu.Lock()
+	if !c.state.Alive || c.state.StunUntil > nowMS {
+		c.mu.Unlock()
+		return
+	}
+	dx := c.state.X - p.X
+	dz := c.state.Z - p.Z
+	if dx*dx+dz*dz > homeOfficeInteractRange*homeOfficeInteractRange {
+		c.mu.Unlock()
+		return
+	}
+	h.channeling[ev.player] = &homeOfficeChannel{pickupID: ev.pickup, startMS: nowMS, baseX: c.state.X, baseZ: c.state.Z}
+	c.state.ChannelPickup = ev.pickup
+	c.state.ChannelUntil = nowMS + homeOfficeChannelMS
+	c.mu.Unlock()
 }
 
 func (h *ArenaHub) applyUpgrade(ev upgradeEvent) {
@@ -2046,6 +2195,8 @@ func (h *ArenaHub) applyUpgrade(ev upgradeEvent) {
 		curLvl = c.state.UpZ
 	case "s":
 		curLvl = c.state.UpS
+	case "f":
+		curLvl = c.state.UpF
 	default:
 		return
 	}
@@ -2089,6 +2240,8 @@ func (h *ArenaHub) applyUpgrade(ev upgradeEvent) {
 		c.state.UpZ++
 	case "s":
 		c.state.UpS++
+	case "f":
+		c.state.UpF++
 	}
 
 	h.recomputePlayerDerivedStatsLocked(c, time.Now().UnixMilli())
@@ -2322,9 +2475,11 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 			n.salvaShots = 0
 			n.nextSalvaShot = 0
 			if n.state.Kind == "pes" {
-				h.spawnPickup("gold", n.state.X, n.state.Z, true, time.Now())
+				if rand.Intn(100) < 40 {
+					h.spawnPickup("gold", n.state.X, n.state.Z, true, time.Now())
+				}
 			} else if n.state.Kind == "namestek" {
-				coins := 2
+				coins := 1
 				for i := 0; i < coins; i++ {
 					ang := rand.Float64() * 2 * math.Pi
 					rad := 0.6 + rand.Float64()*1.6
@@ -2333,7 +2488,7 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 					h.spawnPickup("gold", px, pz, true, time.Now())
 				}
 			} else if n.state.Kind == "reditel" {
-				coins := 2 + rand.Intn(3)
+				coins := 1 + rand.Intn(2)
 				for i := 0; i < coins; i++ {
 					ang := rand.Float64() * 2 * math.Pi
 					rad := 0.6 + rand.Float64()*1.6
@@ -2342,7 +2497,7 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 					h.spawnPickup("gold", px, pz, true, time.Now())
 				}
 			} else if n.state.Kind == "curda" {
-				coins := 2
+				coins := 1
 				for i := 0; i < coins; i++ {
 					ang := rand.Float64() * 2 * math.Pi
 					rad := 0.6 + rand.Float64()*1.2
@@ -2412,6 +2567,11 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 	}
 	now := time.Now()
 	target.state.HP -= dmg
+	if dmg > 0 {
+		delete(h.channeling, target.id)
+		target.state.ChannelPickup = 0
+		target.state.ChannelUntil = 0
+	}
 	killed := target.state.HP <= 0
 	dropGold := 0
 	dropX := target.state.X
@@ -2471,7 +2631,7 @@ func (h *ArenaHub) sendSnapshot() {
 	for _, n := range h.npcs {
 		npcs = append(npcs, n.state)
 	}
-	h.broadcastJSON(sMsg{Type: "snap", Data: sSnapshot{T: now, Players: players, Pickups: pks, Npcs: npcs}})
+	h.broadcastJSON(sMsg{Type: "snap", Data: sSnapshot{T: now, Players: players, Pickups: pks, Npcs: npcs, HomeOfficeGoal: homeOfficeGoal, WinnerID: h.winnerID}})
 }
 
 func (h *ArenaHub) broadcastJSON(m sMsg) {
@@ -2523,6 +2683,7 @@ func (h *ArenaHub) ServeWS(w http.ResponseWriter, r *http.Request) {
 			MaxHP:   startHP,
 			MaxMana: startMana,
 			UpQ:     1,
+			UpF:     0,
 			Gold:    0,
 			Alive:   true,
 			InvulnT: time.Now().UnixMilli() + spawnInvulnMS,
@@ -2660,6 +2821,16 @@ func (c *client) readLoop() {
 			}
 			select {
 			case c.hub.upgEvt <- upgradeEvent{player: c.id, kind: up.Kind}:
+			default:
+			}
+
+		case "channel":
+			var ch cChannel
+			if err := json.Unmarshal(m.Data, &ch); err != nil {
+				continue
+			}
+			select {
+			case c.hub.channelEvt <- channelEvent{player: c.id, pickup: ch.ID, start: ch.Start}:
 			default:
 			}
 
@@ -2804,6 +2975,180 @@ func pickDifferentLine(lines []string, last string) string {
 	return lines[(idx+1)%len(lines)]
 }
 
+func (h *ArenaHub) updateOrbits(nowMS int64) {
+	for owner, orb := range h.orbitals {
+		if nowMS >= orb.endMS {
+			delete(h.orbitals, owner)
+			continue
+		}
+		if nowMS < orb.nextMS {
+			continue
+		}
+		orb.nextMS = nowMS + fOrbitTickMS
+
+		c, ok := h.clients[owner]
+		if !ok {
+			delete(h.orbitals, owner)
+			continue
+		}
+		c.mu.Lock()
+		alive := c.state.Alive
+		ox := c.state.X
+		oz := c.state.Z
+		upDmg := c.state.UpDmg
+		hasDmgBuff := hasActiveBuff(c.state.Buffs, "dmg", nowMS)
+		c.mu.Unlock()
+		if !alive {
+			delete(h.orbitals, owner)
+			continue
+		}
+
+		theta := float64(nowMS%4000) / 4000.0 * 2.0 * math.Pi
+		orbs := [3][2]float64{}
+		for i := 0; i < 3; i++ {
+			a := theta + float64(i)*(2.0*math.Pi/3.0)
+			orbs[i][0] = ox + math.Sin(a)*fOrbitRadius
+			orbs[i][1] = oz + math.Cos(a)*fOrbitRadius
+		}
+
+		dmg := scaledOutgoingDamage(fOrbitBaseDamage, upDmg, hasDmgBuff)
+		hitR2 := fOrbitHitRadius * fOrbitHitRadius
+
+		for id, t := range h.clients {
+			if id == owner {
+				continue
+			}
+			t.mu.Lock()
+			tAlive := t.state.Alive
+			tx := t.state.X
+			tz := t.state.Z
+			t.mu.Unlock()
+			if !tAlive {
+				continue
+			}
+			hit := false
+			for _, op := range orbs {
+				dx := tx - op[0]
+				dz := tz - op[1]
+				if dx*dx+dz*dz <= hitR2 {
+					hit = true
+					break
+				}
+			}
+			if hit {
+				h.applyHit(hitEvent{shooter: owner, target: id, pid: 0, dmg: dmg})
+			}
+		}
+
+		for id, n := range h.npcs {
+			if !n.state.Alive {
+				continue
+			}
+			if n.state.Kind != "pes" && n.state.Kind != "reditel" && n.state.Kind != "namestek" && n.state.Kind != "curda" {
+				continue
+			}
+			nrad := 0.6
+			if n.state.Kind == "reditel" {
+				nrad = 1.05
+			} else if n.state.Kind == "namestek" {
+				nrad = 0.72
+			}
+			r2 := (fOrbitHitRadius + nrad) * (fOrbitHitRadius + nrad)
+			hit := false
+			for _, op := range orbs {
+				dx := n.state.X - op[0]
+				dz := n.state.Z - op[1]
+				if dx*dx+dz*dz <= r2 {
+					hit = true
+					break
+				}
+			}
+			if hit {
+				h.applyHit(hitEvent{shooter: owner, target: id, pid: 0, dmg: dmg})
+			}
+		}
+	}
+}
+
+func (h *ArenaHub) hasHomeOfficePickup() bool {
+	for _, p := range h.pickups {
+		if p.Kind == "home_office" {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *ArenaHub) updateHomeOffice(nowMS int64) {
+	if h.winnerID == 0 {
+		for playerID, ch := range h.channeling {
+			c, ok := h.clients[playerID]
+			if !ok {
+				h.cancelHomeOfficeChannel(playerID)
+				continue
+			}
+			c.mu.Lock()
+			alive := c.state.Alive
+			x := c.state.X
+			z := c.state.Z
+			stunned := c.state.StunUntil > nowMS
+			c.mu.Unlock()
+			if !alive || stunned {
+				h.cancelHomeOfficeChannel(playerID)
+				continue
+			}
+
+			dxMove := x - ch.baseX
+			dzMove := z - ch.baseZ
+			if dxMove*dxMove+dzMove*dzMove > homeOfficeMoveBreak*homeOfficeMoveBreak {
+				h.cancelHomeOfficeChannel(playerID)
+				continue
+			}
+
+			p, ok := h.pickups[ch.pickupID]
+			if !ok || p.Kind != "home_office" {
+				h.cancelHomeOfficeChannel(playerID)
+				continue
+			}
+			dx := x - p.X
+			dz := z - p.Z
+			if dx*dx+dz*dz > homeOfficeInteractRange*homeOfficeInteractRange {
+				h.cancelHomeOfficeChannel(playerID)
+				continue
+			}
+
+			if nowMS-ch.startMS >= homeOfficeChannelMS {
+				delete(h.pickups, ch.pickupID)
+				h.cancelHomeOfficeChannel(playerID)
+				c.mu.Lock()
+				c.state.HomeOffice++
+				newScore := c.state.HomeOffice
+				c.mu.Unlock()
+				if newScore >= homeOfficeGoal && h.winnerID == 0 {
+					h.winnerID = playerID
+				}
+				h.homeOfficeRespawnAt = nowMS + homeOfficeRespawnMS
+			}
+		}
+	}
+
+	if h.winnerID != 0 {
+		return
+	}
+	if h.hasHomeOfficePickup() {
+		return
+	}
+	if h.homeOfficeRespawnAt == 0 {
+		h.homeOfficeRespawnAt = nowMS
+	}
+	if nowMS < h.homeOfficeRespawnAt {
+		return
+	}
+	hx, hz := h.randomBuffSpawnPos()
+	h.spawnPickupValueWithLife("home_office", hx, hz, true, time.Now(), 1, 0)
+	h.homeOfficeRespawnAt = 0
+}
+
 // npcOneShotSpeak picks a single line at most once per aggro acquisition with
 // a chance and then suppresses further repeats until the NPC re-acquires a target.
 func npcOneShotSpeak(n *npcRuntime, lines []string, nowMS int64, chance float64) {
@@ -2839,6 +3184,33 @@ var playerSpawnNoGo = []spawnRect{
 	{minX: -2.0, maxX: 2.0, minZ: -6.5, maxZ: -5.5},
 	{minX: -14.5, maxX: -13.5, minZ: 3.0, maxZ: 7.0},
 	{minX: 13.5, maxX: 14.5, minZ: -7.0, maxZ: -3.0},
+}
+
+// arenaObstacles mirror the cover boxes rendered by the client. Used for
+// authoritative wall collision against NPC projectiles and NPC movement.
+var arenaObstacles = playerSpawnNoGo
+
+func pointInObstacle(x, z, rad float64) bool {
+	for _, r := range arenaObstacles {
+		if x >= r.minX-rad && x <= r.maxX+rad && z >= r.minZ-rad && z <= r.maxZ+rad {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveObstacleMove returns a position that approximates moving from
+// (prevX,prevZ) toward (newX,newZ) while sliding along axis-aligned
+// obstacle walls. Mirrors the client-side resolveMove logic.
+func resolveObstacleMove(prevX, prevZ, newX, newZ, rad float64) (float64, float64) {
+	x, z := prevX, prevZ
+	if !pointInObstacle(newX, prevZ, rad) {
+		x = newX
+	}
+	if !pointInObstacle(x, newZ, rad) {
+		z = newZ
+	}
+	return x, z
 }
 
 func randomPlayerSpawnPos() (float64, float64) {
