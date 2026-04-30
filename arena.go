@@ -136,8 +136,8 @@ const (
 	vBaseRadius   = 5.7
 	vRadStep      = 0.22
 	vLifestealPct = 0.10
-	vBaseDamage   = 14
-	vDamageStep   = 4
+	vBaseDamage   = 10
+	vDamageStep   = 3
 
 	xStunBaseMS = 1700
 	xStunStepMS = 150
@@ -768,7 +768,7 @@ func (h *ArenaHub) updateAuras(nowMS int64) {
 			if !n.state.Alive {
 				continue
 			}
-			if n.state.Kind != "pes" && n.state.Kind != "reditel" && n.state.Kind != "namestek" {
+			if n.state.Kind != "pes" && n.state.Kind != "reditel" && n.state.Kind != "namestek" && n.state.Kind != "curda" {
 				continue
 			}
 			nrad := 0.6

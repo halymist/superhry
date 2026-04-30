@@ -92,8 +92,8 @@ const Z_LINGER_DAMAGE_FACTOR = 0.125;
 const Z_CAST_RANGE = 13.0;
 const Z_BASE_RADIUS = 1.55;
 const Z_RADIUS_STEP = 0.22;
-const Z_BASE_DAMAGE = 42;
-const Z_DAMAGE_STEP = 8;
+const Z_BASE_DAMAGE = 32;
+const Z_DAMAGE_STEP = 5;
 
 const PLAYER_MODEL_COLORS = [0x58c7ff, 0xff7b7b, 0x7be39a, 0xffd26b];
 
