@@ -47,6 +47,7 @@ const (
 	buffStatPct            = 0.20
 	buffDmgPct             = 0.10
 	npcSayMS               = 7000
+	npcSayInternalCDMS     = 9000
 	npcRespawnMS           = 5000
 	npcForcedAggroMS       = 10000
 	dogHP                  = 120
@@ -91,14 +92,14 @@ const (
 	reditelBurstMS         = 3000
 	reditelPauseMS         = 1700
 	reditelGoldDropMS      = 13000
-	reditelBeamCDMS        = 12000
+	reditelBeamCDMS        = 9000
 	reditelBeamSpeed       = 78.0
 	reditelBeamRange       = 44.0
 	reditelBeamRad         = 0.92
 	reditelBeamDmg         = 80
 	reditelBeamWindupMS    = 700
 	reditelBarrageCDMS     = 18000
-	reditelBarrageGapMS    = 400
+	reditelBarrageGapMS    = 120
 	curdaHP                = 240
 	curdaRegenPS           = 8.0
 	curdaAggroRng          = 13.0
@@ -234,8 +235,8 @@ var (
 		"Pošlete za mnou Martina",
 		"Hledám Martina",
 		"Neviděl někdo Martina?",
-		"Martin se mi neozývá",
-		"Měl dnes dorazit Martin",
+		"Martin?",
+		"Martineee?",
 		"Byl tady Martin?",
 	}
 	dogLines = []string{
@@ -299,6 +300,7 @@ type npcRuntime struct {
 	hpAcc            float64
 	nextDirMS        int64
 	nextSayMS        int64
+	nextSayReadyMS   int64
 	nextHitMS        int64
 	nextDropMS       int64
 	nextBeamMS       int64
@@ -986,7 +988,7 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 			}
 			if n.beamFireMS == 0 && n.barrageShots == 0 && nowMS >= n.nextBeamMS {
 				h.scheduleReditelBeam(n, 0, nowMS)
-				n.nextBeamMS = nowMS + reditelBeamCDMS + int64(rand.Intn(4000))
+				n.nextBeamMS = nowMS + reditelBeamCDMS + int64(rand.Intn(2500))
 			}
 			if n.beamFireMS == 0 && nowMS >= n.pauseToMS && n.burstEndMS == 0 {
 				n.burstEndMS = nowMS + reditelBurstMS
@@ -1087,9 +1089,10 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 			}
 
 			if hasTarget {
-				if nowMS >= n.nextSayMS && (n.state.SayUntil <= 0 || nowMS >= n.state.SayUntil) {
+				if nowMS >= n.nextSayMS && nowMS >= n.nextSayReadyMS && (n.state.SayUntil <= 0 || nowMS >= n.state.SayUntil) {
 					n.state.Say = pickDifferentLine(dogLines, n.state.Say)
 					n.state.SayUntil = nowMS + npcSayMS
+					n.nextSayReadyMS = nowMS + npcSayInternalCDMS
 					n.nextSayMS = nowMS + dogTalkCDMS + int64(rand.Intn(2500))
 				}
 				tc := h.clients[n.aggroID]
@@ -1174,9 +1177,10 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 			}
 
 			if hasTarget {
-				if nowMS >= n.nextSayMS && (n.state.SayUntil <= 0 || nowMS >= n.state.SayUntil) {
+				if nowMS >= n.nextSayMS && nowMS >= n.nextSayReadyMS && (n.state.SayUntil <= 0 || nowMS >= n.state.SayUntil) {
 					n.state.Say = pickDifferentLine(namestekLines, n.state.Say)
 					n.state.SayUntil = nowMS + npcSayMS
+					n.nextSayReadyMS = nowMS + npcSayInternalCDMS
 					n.nextSayMS = nowMS + namestekTalkCDMS + int64(rand.Intn(2500))
 				}
 				tc := h.clients[n.aggroID]
@@ -1282,9 +1286,10 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 			}
 
 			if hasTarget {
-				if nowMS >= n.nextSayMS && (n.state.SayUntil <= 0 || nowMS >= n.state.SayUntil) {
+				if nowMS >= n.nextSayMS && nowMS >= n.nextSayReadyMS && (n.state.SayUntil <= 0 || nowMS >= n.state.SayUntil) {
 					n.state.Say = pickDifferentLine(curdaLines, n.state.Say)
 					n.state.SayUntil = nowMS + npcSayMS
+					n.nextSayReadyMS = nowMS + npcSayInternalCDMS
 					n.nextSayMS = nowMS + curdaTalkCDMS + int64(rand.Intn(2500))
 				}
 				tx, tz, alive := h.alivePlayerByID(n.aggroID)
@@ -1349,9 +1354,10 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 						d2 := dx*dx + dz*dz
 						if d2 <= sofieFollowDrop*sofieFollowDrop {
 							following = true
-							if nowMS >= n.nextSayMS && (n.state.SayUntil <= 0 || nowMS >= n.state.SayUntil) {
+							if nowMS >= n.nextSayMS && nowMS >= n.nextSayReadyMS && (n.state.SayUntil <= 0 || nowMS >= n.state.SayUntil) {
 								n.state.Say = pickDifferentLine(sofieLines, n.state.Say)
 								n.state.SayUntil = nowMS + npcSayMS
+								n.nextSayReadyMS = nowMS + npcSayInternalCDMS
 								n.nextSayMS = nowMS + 1600 + int64(rand.Intn(1400))
 							}
 							d := math.Sqrt(d2)

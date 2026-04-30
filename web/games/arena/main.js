@@ -64,8 +64,8 @@ const SPELL_UP_MAX = 5;
 const C_DASH_MS     = 220;
 
 // camera pan
-const CAM_PAN_EDGE = 0.82;
-const CAM_PAN_SPEED = 24.0;
+const CAM_PAN_EDGE = 0.72;
+const CAM_PAN_SPEED = 30.0;
 
 // V pool
 const V_COOLDOWN_MS = 13000;
@@ -758,7 +758,7 @@ function updateNPCsFromSnapshot(snap) {
     if (!obj) {
       const mesh = makeNPCMesh(n);
       scene.add(mesh);
-      obj = { id: n.id, mesh, kind: n.kind, name: n.name, hp: n.hp || 0, maxHp: n.maxHp || 0, alive: n.alive !== false, say: '', sayUntil: 0, stunUntil: 0 };
+      obj = { id: n.id, mesh, kind: n.kind, name: n.name, hp: n.hp || 0, maxHp: n.maxHp || 0, alive: n.alive !== false, say: '', sayUntil: 0, lastSay: '', stunUntil: 0 };
       npcs.set(n.id, obj);
     }
     obj.id = n.id;
@@ -783,7 +783,12 @@ function updateNPCsFromSnapshot(snap) {
     obj.say = n.say || '';
     obj.sayUntil = n.sayUntil || 0;
     obj.stunUntil = n.stunUntil || 0;
-    if (obj.say) setTalkSprite(obj.mesh.userData.talkSprite, obj.say);
+    if (!obj.say) {
+      obj.lastSay = '';
+    } else if (obj.say !== obj.lastSay) {
+      setTalkSprite(obj.mesh.userData.talkSprite, obj.say);
+      obj.lastSay = obj.say;
+    }
     if (obj.mesh.userData.stunSprite) {
       obj.mesh.userData.stunSprite.visible = obj.alive && Date.now() < obj.stunUntil;
     }
