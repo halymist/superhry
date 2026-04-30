@@ -140,7 +140,7 @@ const (
 	fOrbitPeriodMS   = 2500
 	fOrbitRadius     = 5.5
 	fOrbitHitRadius  = 1.15
-	fOrbitBaseDamage = 10
+	fOrbitBaseDamage = 15
 
 	shieldDurationMS = 5000
 	shieldPctMaxHP   = 0.30
@@ -2321,6 +2321,14 @@ func (h *ArenaHub) applyStunPlayer(id uint64, durMS int64) {
 	nowMS := time.Now().UnixMilli()
 	c.mu.Lock()
 	if c.state.Alive {
+		if c.state.ShieldT > 0 && nowMS >= c.state.ShieldT {
+			c.state.Shield = 0
+			c.state.ShieldT = 0
+		}
+		if c.state.Shield > 0 && c.state.ShieldT > nowMS {
+			c.mu.Unlock()
+			return
+		}
 		until := nowMS + durMS
 		if until > c.state.StunUntil {
 			c.state.StunUntil = until
@@ -2547,6 +2555,7 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 		target.state.Shield = 0
 		target.state.ShieldT = 0
 	}
+	hasShieldForStun := target.state.Shield > 0 && target.state.ShieldT > nowMS
 	if target.state.Shield > 0 {
 		if dmg <= target.state.Shield {
 			target.state.Shield -= dmg
@@ -2584,14 +2593,18 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 		dropGold = target.state.Gold
 		target.state.Gold = 0
 	} else if kind == "x" {
-		until := now.UnixMilli() + xStunBaseMS + h.stunExtraFromUpgrade(ev.shooter)
-		if until > target.state.StunUntil {
-			target.state.StunUntil = until
+		if !hasShieldForStun {
+			until := now.UnixMilli() + xStunBaseMS + h.stunExtraFromUpgrade(ev.shooter)
+			if until > target.state.StunUntil {
+				target.state.StunUntil = until
+			}
 		}
 	} else if kind == "curda_stun" {
-		until := now.UnixMilli() + curdaStunMS
-		if until > target.state.StunUntil {
-			target.state.StunUntil = until
+		if !hasShieldForStun {
+			until := now.UnixMilli() + curdaStunMS
+			if until > target.state.StunUntil {
+				target.state.StunUntil = until
+			}
 		}
 	}
 	hp := target.state.HP

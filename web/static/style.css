@@ -519,8 +519,9 @@ html, body {
   position: absolute;
   left: calc(50% + 258px);
   bottom: 16px;
+  --sb-cell-size: 74px;
   width: max-content;
-  max-width: calc(100vw - 24px);
+  max-width: calc(100vw - 12px);
   background: rgba(18, 31, 54, 0.88);
   border: 1px solid #6f8bc1;
   border-radius: 8px;
@@ -543,12 +544,12 @@ html, body {
 
 .hud .spellbook-panel .sb-stats {
   display: grid;
-  grid-template-columns: repeat(var(--sb-spell-cols, 5), 56px);
+  grid-template-columns: repeat(var(--sb-spell-cols, 5), var(--sb-cell-size));
   gap: 6px;
 }
 
 .hud .spellbook-panel .sb-stat {
-  width: 56px;
+  width: var(--sb-cell-size);
   padding: 4px 5px;
   border: 1px solid #4a6eae;
   border-radius: 6px;
@@ -584,8 +585,8 @@ html, body {
 
 .hud .spellbook-panel .sb-grid {
   display: grid;
-  grid-template-columns: repeat(var(--sb-spell-cols, 5), 56px);
-  grid-auto-rows: 56px;
+  grid-template-columns: repeat(var(--sb-spell-cols, 5), var(--sb-cell-size));
+  grid-auto-rows: var(--sb-cell-size);
   gap: 6px;
 }
 
@@ -597,9 +598,9 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  width: 56px;
-  min-width: 56px;
-  height: 56px;
+  width: var(--sb-cell-size);
+  min-width: var(--sb-cell-size);
+  height: var(--sb-cell-size);
   justify-content: space-between;
   overflow: hidden;
 }
