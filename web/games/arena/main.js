@@ -108,8 +108,8 @@ const F_COOLDOWN_MS = 14000;
 const F_COST = 45;
 const F_ORBIT_DURATION_MS = 6000;
 const F_ORBIT_RADIUS = 5.5;
-const F_ORBIT_ANGULAR_SPEED = 0.0046;
-const HOME_OFFICE_CLICK_RANGE = 3.4;
+const F_ORBIT_PERIOD_MS = 2500;
+const HOME_OFFICE_CLICK_RANGE = 4.3;
 
 const PLAYER_MODEL_COLORS = [0x58c7ff, 0xff7b7b, 0x7be39a, 0xffd26b];
 
@@ -2194,7 +2194,7 @@ function updateOrbits(now) {
         oz = p.mesh.position.z;
       }
     }
-    const t = now * F_ORBIT_ANGULAR_SPEED;
+    const t = ((Date.now() % F_ORBIT_PERIOD_MS) / F_ORBIT_PERIOD_MS) * Math.PI * 2;
     for (let k = 0; k < o.meshes.length; k++) {
       const a = t + k * (Math.PI * 2 / o.meshes.length);
       const m = o.meshes[k];
@@ -2555,22 +2555,23 @@ function pickHoverableHomeOffice(clientX, clientY) {
 
 function ensureChannelBeam() {
   if (channelBeam) return channelBeam;
-  const mat = new THREE.LineBasicMaterial({ color: 0xc8f5ff, transparent: true, opacity: 0.85 });
-  const geom = new THREE.BufferGeometry().setFromPoints([
+  const mat = new THREE.MeshBasicMaterial({ color: 0xc8f5ff, transparent: true, opacity: 0.82 });
+  const curve = new THREE.CatmullRomCurve3([
     new THREE.Vector3(0, 0, 0),
     new THREE.Vector3(0, 0, 0),
     new THREE.Vector3(0, 0, 0),
   ]);
-  const line = new THREE.Line(geom, mat);
-  line.visible = false;
-  scene.add(line);
-  channelBeam = { line, geom, mat };
+  const geom = new THREE.TubeGeometry(curve, 14, 0.12, 10, false);
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.visible = false;
+  scene.add(mesh);
+  channelBeam = { mesh, geom, mat };
   return channelBeam;
 }
 
 function setChannelBeam(active, fromX, fromZ, toX, toZ, tNow) {
   const beam = ensureChannelBeam();
-  beam.line.visible = active;
+  beam.mesh.visible = active;
   if (!active) return;
 
   const wobble = Math.sin(tNow / 95) * 0.12;
@@ -2579,8 +2580,12 @@ function setChannelBeam(active, fromX, fromZ, toX, toZ, tNow) {
     new THREE.Vector3((fromX + toX) * 0.5 + wobble, 1.38 + Math.sin(tNow / 140) * 0.08, (fromZ + toZ) * 0.5 - wobble),
     new THREE.Vector3(toX, 0.95, toZ),
   ];
-  beam.geom.setFromPoints(points);
-  beam.mat.opacity = 0.5 + 0.35*(0.5+0.5*Math.sin(tNow/120));
+  const curve = new THREE.CatmullRomCurve3(points);
+  const nextGeom = new THREE.TubeGeometry(curve, 14, 0.12, 10, false);
+  beam.mesh.geometry.dispose();
+  beam.mesh.geometry = nextGeom;
+  beam.geom = nextGeom;
+  beam.mat.opacity = 0.56 + 0.34*(0.5+0.5*Math.sin(tNow/120));
 }
 
 function stopHomeOfficeChannel() {

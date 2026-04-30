@@ -137,6 +137,7 @@ const (
 
 	fOrbitDurationMS = 6000
 	fOrbitTickMS     = 250
+	fOrbitPeriodMS   = 2500
 	fOrbitRadius     = 5.5
 	fOrbitHitRadius  = 1.15
 	fOrbitBaseDamage = 10
@@ -149,7 +150,7 @@ const (
 	homeOfficeGoal          = 20
 	homeOfficeChannelMS     = 5000
 	homeOfficeRespawnMS     = 9000
-	homeOfficeInteractRange = 3.4
+	homeOfficeInteractRange = 4.3
 	homeOfficeMoveBreak     = 0.45
 
 	vBaseRadius   = 5.7
@@ -1171,7 +1172,7 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 				if closestID != 0 && closestD2 <= dogAggroRange*dogAggroRange {
 					n.aggroID = closestID
 					hasTarget = true
-					npcOneShotSpeak(n, dogLines, nowMS, 0.45)
+					npcOneShotSpeak(n, dogLines, nowMS, 1.0)
 				}
 			}
 
@@ -1253,7 +1254,7 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 				if closestID != 0 && closestD2 <= namestekAggroRng*namestekAggroRng {
 					n.aggroID = closestID
 					hasTarget = true
-					npcOneShotSpeak(n, namestekLines, nowMS, 0.45)
+					npcOneShotSpeak(n, namestekLines, nowMS, 1.0)
 				}
 			}
 
@@ -1354,7 +1355,7 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 						if dx*dx+dz*dz <= curdaAggroRng*curdaAggroRng {
 							n.aggroID = bestID
 							hasTarget = true
-							npcOneShotSpeak(n, curdaLines, nowMS, 0.45)
+							npcOneShotSpeak(n, curdaLines, nowMS, 1.0)
 						}
 					}
 				}
@@ -2998,7 +2999,7 @@ func (h *ArenaHub) updateOrbits(nowMS int64) {
 			continue
 		}
 
-		theta := float64(nowMS%2500) / 2500.0 * 2.0 * math.Pi
+		theta := float64(nowMS%fOrbitPeriodMS) / float64(fOrbitPeriodMS) * 2.0 * math.Pi
 		orbs := [3][2]float64{}
 		for i := 0; i < 3; i++ {
 			a := theta + float64(i)*(2.0*math.Pi/3.0)
