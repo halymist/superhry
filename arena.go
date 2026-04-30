@@ -34,12 +34,12 @@ const (
 	hpRegenPctPerSec   = 0.05
 	manaRegenPctPerSec = 0.05
 
-	pickupSpawnMS          = 8500
-	maxPickups             = 5
+	pickupSpawnMS          = 6500
+	maxPickups             = 8
 	maxBuffPickups         = 1
 	buffSpawnMS            = 60000
 	pickupAmount           = 20
-	goldAmount             = 1
+	goldAmount             = 3
 	pickupRadius           = 1.2 // pickup-collection distance
 	pickupLifeMS           = 30000
 	buffPickupLifeMS       = 30000
@@ -50,7 +50,7 @@ const (
 	npcSayInternalCDMS     = 9000
 	npcRespawnMS           = 5000
 	npcForcedAggroMS       = 10000
-	dogHP                  = 120
+	dogHP                  = 100
 	dogAggroRange          = 11.0
 	dogDeaggroRng          = 16.0
 	dogTouchRange          = 1.15
@@ -58,7 +58,7 @@ const (
 	dogHitCDMS             = 900
 	dogChaseSpeed          = 4.7
 	dogWanderSpeed         = 2.45
-	namestekHP             = 250
+	namestekHP             = 210
 	namestekRegenPS        = 11.0
 	namestekAggroRng       = 12.0
 	namestekDeaggroRng     = 18.0
@@ -75,7 +75,7 @@ const (
 	namestekChargeHitR     = 1.28
 	namestekChargeDmg      = 29
 	namestekChargeStunMS   = 550
-	reditelHP              = 600
+	reditelHP              = 520
 	reditelRegenPS         = 18.0
 	dogTalkCDMS            = 5000
 	namestekTalkCDMS       = 5000
@@ -100,7 +100,7 @@ const (
 	reditelBeamWindupMS    = 700
 	reditelBarrageCDMS     = 18000
 	reditelBarrageGapMS    = 120
-	curdaHP                = 240
+	curdaHP                = 200
 	curdaRegenPS           = 8.0
 	curdaAggroRng          = 13.0
 	curdaDeaggroRng        = 19.0
@@ -134,13 +134,14 @@ const (
 	Z_COST = 50
 	S_COST = 40
 	F_COST = 45
+	G_COST = 40
 
 	fOrbitDurationMS = 6000
 	fOrbitTickMS     = 250
 	fOrbitPeriodMS   = 2500
 	fOrbitRadius     = 5.5
 	fOrbitHitRadius  = 1.15
-	fOrbitBaseDamage = 15
+	fOrbitBaseDamage = 17
 
 	shieldDurationMS = 5000
 	shieldPctMaxHP   = 0.30
@@ -156,7 +157,7 @@ const (
 	vBaseRadius   = 5.7
 	vRadStep      = 0.22
 	vLifestealPct = 0.10
-	vBaseDamage   = 10
+	vBaseDamage   = 8
 	vDamageStep   = 3
 
 	xStunBaseMS = 1700
@@ -199,6 +200,8 @@ func manaCost(kind string) int {
 		return S_COST
 	case "f":
 		return F_COST
+	case "g":
+		return G_COST
 	}
 	return 0
 }
@@ -240,6 +243,7 @@ type playerState struct {
 	UpZ           int               `json:"upZ"`
 	UpS           int               `json:"upS"`
 	UpF           int               `json:"upF"`
+	UpG           int               `json:"upG"`
 	HomeOffice    int               `json:"homeOffice"`
 	Shield        int               `json:"shield,omitempty"`
 	ShieldT       int64             `json:"shieldUntil,omitempty"`
@@ -1765,10 +1769,10 @@ func (h *ArenaHub) maybeSpawnPickup(now time.Time) {
 	h.lastPickup = now
 
 	kind := "mana"
-	kindRoll := rand.Intn(10)
-	if kindRoll == 0 {
+	kindRoll := rand.Intn(6)
+	if kindRoll <= 2 {
 		kind = "gold"
-	} else if kindRoll == 1 {
+	} else if kindRoll == 3 {
 		kind = "hp"
 	}
 	h.spawnPickup(kind, 0, 0, false, now)
@@ -1880,6 +1884,10 @@ func (h *ArenaHub) applyCast(ev castEvent) {
 		return
 	}
 	if ev.kind == "f" && c.state.UpF <= 0 {
+		c.mu.Unlock()
+		return
+	}
+	if ev.kind == "g" && c.state.UpG <= 0 {
 		c.mu.Unlock()
 		return
 	}
@@ -2028,6 +2036,10 @@ func (h *ArenaHub) applyFire(ev fireEvent) {
 		c.mu.Unlock()
 		return
 	}
+	if ev.kind == "g" && c.state.UpG <= 0 {
+		c.mu.Unlock()
+		return
+	}
 	if !c.state.Alive || c.state.Mana < cost {
 		c.mu.Unlock()
 		return
@@ -2085,7 +2097,7 @@ func (h *ArenaHub) applyPickup(ev pickEvent) {
 		if maxMana <= 0 {
 			maxMana = startMana
 		}
-		restore := int(math.Round(float64(maxMana) * 0.25))
+		restore := int(math.Round(float64(maxMana) * 0.18))
 		if restore < 1 {
 			restore = 1
 		}
@@ -2198,6 +2210,8 @@ func (h *ArenaHub) applyUpgrade(ev upgradeEvent) {
 		curLvl = c.state.UpS
 	case "f":
 		curLvl = c.state.UpF
+	case "g":
+		curLvl = c.state.UpG
 	default:
 		return
 	}
@@ -2243,6 +2257,8 @@ func (h *ArenaHub) applyUpgrade(ev upgradeEvent) {
 		c.state.UpS++
 	case "f":
 		c.state.UpF++
+	case "g":
+		c.state.UpG++
 	}
 
 	h.recomputePlayerDerivedStatsLocked(c, time.Now().UnixMilli())
@@ -2484,9 +2500,7 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 			n.salvaShots = 0
 			n.nextSalvaShot = 0
 			if n.state.Kind == "pes" {
-				if rand.Intn(100) < 40 {
-					h.spawnPickup("gold", n.state.X, n.state.Z, true, time.Now())
-				}
+				h.spawnPickup("gold", n.state.X, n.state.Z, true, time.Now())
 			} else if n.state.Kind == "namestek" {
 				coins := 1
 				for i := 0; i < coins; i++ {
@@ -2693,6 +2707,7 @@ func (h *ArenaHub) ServeWS(w http.ResponseWriter, r *http.Request) {
 			MaxMana: startMana,
 			UpQ:     1,
 			UpF:     0,
+			UpG:     0,
 			Gold:    0,
 			Alive:   true,
 			InvulnT: time.Now().UnixMilli() + spawnInvulnMS,

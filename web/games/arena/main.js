@@ -12,7 +12,7 @@ const Q_SPEED_MAX   = 31.0;
 const Q_ACCEL       = 0.0;
 const Q_RANGE      = 19.0;
 const Q_RADIUS     = 0.24;
-const Q_BASE_DAMAGE = 8;
+const Q_BASE_DAMAGE = 6;
 const Q_DAMAGE_STEP = 2;
 const Q_COOLDOWN_MS = 5600;
 const Q_COST       = 35;
@@ -98,7 +98,7 @@ const Z_LINGER_DAMAGE_FACTOR = 0.125;
 const Z_CAST_RANGE = 13.0;
 const Z_BASE_RADIUS = 1.55;
 const Z_RADIUS_STEP = 0.22;
-const Z_BASE_DAMAGE = 32;
+const Z_BASE_DAMAGE = 36;
 const Z_DAMAGE_STEP = 5;
 
 const S_COOLDOWN_MS = 12000;
@@ -109,6 +109,13 @@ const F_COST = 45;
 const F_ORBIT_DURATION_MS = 6000;
 const F_ORBIT_RADIUS = 5.5;
 const F_ORBIT_PERIOD_MS = 2500;
+const G_COOLDOWN_MS = 9800;
+const G_COST = 40;
+const G_SPEED = 8.5;
+const G_RANGE = 19.0;
+const G_BASE_RADIUS = 0.24;
+const G_MAX_RADIUS = 1.35;
+const G_DAMAGE = 18;
 const HOME_OFFICE_CLICK_RANGE = 4.3;
 
 const PLAYER_MODEL_COLORS = [0x58c7ff, 0xff7b7b, 0x7be39a, 0xffd26b];
@@ -124,6 +131,7 @@ const SPELL_DEFS = {
   z: { id: 'z', name: 'Dopad' },
   s: { id: 's', name: 'Stit' },
   f: { id: 'f', name: 'Orbit' },
+  g: { id: 'g', name: 'Vlna' },
 };
 
 // pickups
@@ -182,8 +190,9 @@ function refreshSpellbookUi() {
   upZEl.textContent = `${myUp.z}/${SPELL_UNLOCK_MAX}`;
   upSEl.textContent = `${myUp.s}/${SPELL_UNLOCK_MAX}`;
   upFEl.textContent = `${myUp.f}/${SPELL_UNLOCK_MAX}`;
-  const lvlByKind = { hp: myUp.hp, mana: myUp.mana, dmg: myUp.dmg, speed: myUp.speed, cdr: myUp.cdr, q: myUp.q, w: myUp.w, e: myUp.e, r: myUp.r, c: myUp.c, v: myUp.v, x: myUp.x, z: myUp.z, s: myUp.s, f: myUp.f };
-  const capByKind = { hp: STAT_UP_MAX, mana: STAT_UP_MAX, dmg: STAT_UP_MAX, speed: STAT_UP_MAX, cdr: STAT_UP_MAX, q: SPELL_UNLOCK_MAX, w: SPELL_UNLOCK_MAX, e: SPELL_UNLOCK_MAX, r: SPELL_UNLOCK_MAX, c: SPELL_UNLOCK_MAX, v: SPELL_UNLOCK_MAX, x: SPELL_UNLOCK_MAX, z: SPELL_UNLOCK_MAX, s: SPELL_UNLOCK_MAX, f: SPELL_UNLOCK_MAX };
+  upGEl.textContent = `${myUp.g}/${SPELL_UNLOCK_MAX}`;
+  const lvlByKind = { hp: myUp.hp, mana: myUp.mana, dmg: myUp.dmg, speed: myUp.speed, cdr: myUp.cdr, q: myUp.q, w: myUp.w, e: myUp.e, r: myUp.r, c: myUp.c, v: myUp.v, x: myUp.x, z: myUp.z, s: myUp.s, f: myUp.f, g: myUp.g };
+  const capByKind = { hp: STAT_UP_MAX, mana: STAT_UP_MAX, dmg: STAT_UP_MAX, speed: STAT_UP_MAX, cdr: STAT_UP_MAX, q: SPELL_UNLOCK_MAX, w: SPELL_UNLOCK_MAX, e: SPELL_UNLOCK_MAX, r: SPELL_UNLOCK_MAX, c: SPELL_UNLOCK_MAX, v: SPELL_UNLOCK_MAX, x: SPELL_UNLOCK_MAX, z: SPELL_UNLOCK_MAX, s: SPELL_UNLOCK_MAX, f: SPELL_UNLOCK_MAX, g: SPELL_UNLOCK_MAX };
   for (const inline of spellbookUpgradeInline) {
     const kind = inline.dataset.upgrade;
     const lvl = lvlByKind[kind] || 0;
@@ -230,6 +239,7 @@ function spellRadiusForLevel(kind, level) {
   if (kind === 'x') return X_RANGE;
   if (kind === 'z') return Z_CAST_RANGE;
   if (kind === 'f') return F_ORBIT_RADIUS;
+  if (kind === 'g') return G_RANGE;
   return null;
 }
 
@@ -298,6 +308,7 @@ const upXEl = document.getElementById('u-x');
 const upZEl = document.getElementById('u-z');
 const upSEl = document.getElementById('u-s');
 const upFEl = document.getElementById('u-f');
+const upGEl = document.getElementById('u-g');
 const rCastWrap = document.getElementById('r-cast-wrap');
 const rCastFill = document.getElementById('r-cast-fill');
 
@@ -925,7 +936,7 @@ let startHP = 100;
 let startMana = 100;
 let myMana = 100; // optimistic local prediction; corrected by snapshots
 let myGold = 0;
-let myUp = { hp: 0, mana: 0, dmg: 0, speed: 0, cdr: 0, q: 1, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0, s: 0, f: 0 };
+let myUp = { hp: 0, mana: 0, dmg: 0, speed: 0, cdr: 0, q: 1, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0, s: 0, f: 0, g: 0 };
 let myStunUntil = 0;
 let myHomeOffice = 0;
 let homeOfficeGoal = 20;
@@ -956,6 +967,7 @@ let xReadyAt = 0;
 let zReadyAt = 0;
 let sReadyAt = 0;
 let fReadyAt = 0;
+let gReadyAt = 0;
 let aaReadyAt = 0;
 let rCastUntil = 0;
 let qMode = false;
@@ -1200,6 +1212,7 @@ function handleSnapshot(snap) {
     pl.upZ = p.upZ || 0;
     pl.upS = p.upS || 0;
     pl.upF = p.upF || 0;
+    pl.upG = p.upG || 0;
     pl.homeOffice = p.homeOffice || 0;
     pl.channelPickup = p.channelPickup || 0;
     pl.channelUntil = p.channelUntil || 0;
@@ -1284,6 +1297,7 @@ function handleSnapshot(snap) {
       z: me.upZ || 0,
       s: me.upS || 0,
       f: me.upF || 0,
+      g: me.upG || 0,
     };
     myHomeOffice = me.homeOffice || 0;
     if (homeOfficeGoalEl) {
@@ -1506,6 +1520,10 @@ function castEquipped(slotKey) {
   }
   if (spellKind === 'f') {
     tryCastF();
+    return;
+  }
+  if (spellKind === 'g') {
+    tryFireG();
   }
 }
 
@@ -1520,6 +1538,7 @@ function spellCooldownRatio(kind, now, statsNow) {
   if (kind === 'z') return Math.max(0, Math.min(1, Math.max(0, zReadyAt - now) / cooldownMs(Z_COOLDOWN_MS, statsNow)));
   if (kind === 's') return Math.max(0, Math.min(1, Math.max(0, sReadyAt - now) / cooldownMs(S_COOLDOWN_MS, statsNow)));
   if (kind === 'f') return Math.max(0, Math.min(1, Math.max(0, fReadyAt - now) / cooldownMs(F_COOLDOWN_MS, statsNow)));
+  if (kind === 'g') return Math.max(0, Math.min(1, Math.max(0, gReadyAt - now) / cooldownMs(G_COOLDOWN_MS, statsNow)));
   return 0;
 }
 
@@ -1537,6 +1556,7 @@ function canCastSpell(kind, alive, now, statsNow = myAbilityStats()) {
   if (kind === 'z') return myUp.z > 0 && myMana >= Z_COST && now >= zReadyAt;
   if (kind === 's') return myUp.s > 0 && myMana >= S_COST && now >= sReadyAt;
   if (kind === 'f') return myUp.f > 0 && myMana >= F_COST && now >= fReadyAt;
+  if (kind === 'g') return myUp.g > 0 && myMana >= G_COST && now >= gReadyAt;
   return false;
 }
 
@@ -1727,6 +1747,7 @@ function setupSpawn() {
   zReadyAt = 0;
   sReadyAt = 0;
   fReadyAt = 0;
+  gReadyAt = 0;
   myStunUntil = 0;
   homeOfficeChannel = null;
   hoveredHomeOfficePickupId = 0;
@@ -1981,6 +2002,20 @@ function tryCastF() {
   send({ type: 'cast', data: { kind: 'f' } });
 }
 
+function tryFireG() {
+  const me = players.get(myId);
+  if (!me || !me.alive) return;
+  if (Date.now() < myStunUntil) return;
+  if ((myUp.g || 0) <= 0) return;
+  const now = performance.now();
+  if (now < gReadyAt) return;
+  if (myMana < G_COST) return;
+
+  const stats = myAbilityStats();
+  gReadyAt = now + cooldownMs(G_COOLDOWN_MS, stats);
+  fireProjectile('g');
+}
+
 function tryAutoAttack() {
   const me = players.get(myId);
   if (!me || !me.alive) return;
@@ -2028,6 +2063,8 @@ function projectileSpec(kind, boost = null) {
       return { radius: AA_RADIUS, startSpeed: AA_SPEED_START, maxSpeed: AA_SPEED_MAX, accel: AA_ACCEL, range: AA_RANGE, dmg: AA_DAMAGE, pierce: false };
     case 'x':
       return { radius: X_RADIUS, startSpeed: X_SPEED_START, maxSpeed: X_SPEED_MAX, accel: X_ACCEL, range: X_RANGE, dmg: X_DAMAGE, pierce: false };
+    case 'g':
+      return { radius: G_BASE_RADIUS, startSpeed: G_SPEED, maxSpeed: G_SPEED, accel: 0, range: G_RANGE, dmg: G_DAMAGE, pierce: true, waveGrow: G_MAX_RADIUS - G_BASE_RADIUS, waveMax: G_MAX_RADIUS };
     case 'curda_stun':
       return { radius: 0.60, startSpeed: 22.0, maxSpeed: 22.0, accel: 0, range: 18.0, dmg: 14, pierce: false };
     case 'curda_salva':
@@ -2045,6 +2082,7 @@ function spawnProjectile(p) {
   else if (kind === 'reditel_beam') color = 0xff6d8a;
   else if (kind === 'curda_stun') color = 0x8b7cff;
   else if (kind === 'curda_salva') color = 0xffb06b;
+  else if (kind === 'g') color = p.owner === myId ? 0x9ce8ff : 0x8bf5d2;
   else if (kind === 'r')      color = p.owner === myId ? 0xff7df6 : 0xff5dc8;
   else if (kind === 'x') color = p.owner === myId ? 0x89ffde : 0x7dcfff;
   else if (kind === 'aa') color = p.owner === myId ? 0xa6f0ff : 0xfff0a0;
@@ -2076,7 +2114,13 @@ function spawnProjectile(p) {
     speed: spec.startSpeed,
     maxSpeed: spec.maxSpeed,
     accel: spec.accel,
-    radius: spec.radius, range: spec.range, dmg: spec.dmg, pierce: spec.pierce,
+    radius: spec.radius,
+    baseRadius: spec.radius,
+    waveGrow: spec.waveGrow || 0,
+    waveMax: spec.waveMax || spec.radius,
+    range: spec.range,
+    dmg: spec.dmg,
+    pierce: spec.pierce,
     kind,
     dist: 0,
     mesh,
@@ -2356,6 +2400,15 @@ function updateProjectiles(dt) {
     pr.x += stepX;
     pr.z += stepZ;
     pr.dist += Math.hypot(stepX, stepZ);
+
+    if (pr.waveGrow > 0) {
+      const ratio = Math.max(0, Math.min(1, pr.dist / Math.max(0.001, pr.range)));
+      const nextRadius = Math.min(pr.waveMax, pr.baseRadius + pr.waveGrow * ratio);
+      pr.radius = nextRadius;
+      const s = nextRadius / Math.max(0.001, pr.baseRadius);
+      pr.mesh.scale.set(s, Math.max(0.7, s*0.75), s);
+    }
+
     pr.mesh.position.x = pr.x;
     pr.mesh.position.z = pr.z;
 

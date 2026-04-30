@@ -500,19 +500,16 @@ html, body {
   transform: rotate(180deg);
 }
 
-.hud .gold-floating {
-  position: absolute;
-  left: calc(50% + 226px);
-  bottom: 192px;
-  min-width: 96px;
-  text-align: center;
+.hud .home-office-objective .gold-floating {
+  margin-top: 6px;
+  min-width: 0;
+  text-align: left;
   border: 1px solid #4f73b2;
-  border-radius: 8px;
-  background: rgba(19, 30, 52, 0.94);
+  border-radius: 6px;
+  background: rgba(19, 30, 52, 0.9);
   color: #d8ebff;
   font-size: 11px;
-  padding: 5px 6px;
-  pointer-events: none;
+  padding: 4px 6px;
 }
 
 .hud .spellbook-panel {
@@ -544,12 +541,13 @@ html, body {
 
 .hud .spellbook-panel .sb-stats {
   display: grid;
-  grid-template-columns: repeat(var(--sb-spell-cols, 5), var(--sb-cell-size));
+  width: 100%;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
 }
 
 .hud .spellbook-panel .sb-stat {
-  width: var(--sb-cell-size);
+  width: auto;
   padding: 4px 5px;
   border: 1px solid #4a6eae;
   border-radius: 6px;
@@ -678,12 +676,6 @@ html, body {
     bottom: 12px;
     width: 26px;
     height: 132px;
-  }
-  .hud .gold-floating {
-    left: auto;
-    right: 12px;
-    bottom: 152px;
-    min-width: 88px;
   }
   .hud .ability-slot {
     width: 64px;
