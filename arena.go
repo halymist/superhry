@@ -122,11 +122,11 @@ const (
 	curdaSalvaIntervalMS   = 110
 	curdaSalvaCDMS         = 3250
 
-	chargeCost       = 40
+	chargeCost       = 30
 	chargeDashDist   = 10.2
 	chargeHitRadius  = 1.2
 	chargeDamageBase = 16
-	chargeDamageStep = 12
+	chargeDamageStep = 7
 	chargeStunMS     = 850
 
 	V_COST = 55
@@ -136,8 +136,8 @@ const (
 	vBaseRadius   = 5.7
 	vRadStep      = 0.22
 	vLifestealPct = 0.10
-	vBaseDamage   = 22
-	vDamageStep   = 7
+	vBaseDamage   = 14
+	vDamageStep   = 4
 
 	xStunBaseMS = 1700
 	xStunStepMS = 150

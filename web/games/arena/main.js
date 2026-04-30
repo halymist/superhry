@@ -13,7 +13,7 @@ const Q_ACCEL       = 0.0;
 const Q_RANGE      = 19.0;
 const Q_RADIUS     = 0.24;
 const Q_BASE_DAMAGE = 8;
-const Q_DAMAGE_STEP = 4;
+const Q_DAMAGE_STEP = 2;
 const Q_COOLDOWN_MS = 5600;
 const Q_COST       = 35;
 const Q_BURST_MS = 760;
@@ -35,14 +35,14 @@ const R_ACCEL       = 18.0;
 const R_RANGE      = 60.0;
 const R_RADIUS     = 1.45;
 const R_DAMAGE     = 100;
-const R_DAMAGE_STEP = 30;
+const R_DAMAGE_STEP = 16;
 const R_COOLDOWN_MS = 2500;
 const R_COST       = 75;
 const R_CAST_MS    = 1000;
 
 // C dash (Charge)
 const C_COOLDOWN_MS = 7000;
-const C_COST        = 40;
+const C_COST        = 30;
 const C_DASH_DIST   = 10.2;
 
 const PLAYER_RADIUS = 0.6;
@@ -93,7 +93,7 @@ const Z_CAST_RANGE = 13.0;
 const Z_BASE_RADIUS = 1.55;
 const Z_RADIUS_STEP = 0.22;
 const Z_BASE_DAMAGE = 42;
-const Z_DAMAGE_STEP = 15;
+const Z_DAMAGE_STEP = 8;
 
 const PLAYER_MODEL_COLORS = [0x58c7ff, 0xff7b7b, 0x7be39a, 0xffd26b];
 
@@ -539,7 +539,7 @@ function setTalkSprite(sp, text) {
   const ctx = sp.userData.ctx;
   const fontPx = 28;
   const maxW = 1200;
-  const minW = 140;
+  const minW = 220;
   ctx.font = `bold ${fontPx}px ui-monospace, Consolas, monospace`;
   const measured = t ? Math.ceil(ctx.measureText(t).width) : 0;
   const w = Math.max(minW, Math.min(maxW, measured + 44));
@@ -2533,7 +2533,7 @@ function loop(t) {
 
   // camera: free mouse-pan with fixed angle, clamped inside lobby.
   let panX = 0, panZ = 0;
-  if (hasMouse) {
+  if (hasMouse && !chargeAnim.active) {
     if (mouseNDC.x > CAM_PAN_EDGE) {
       panX = (mouseNDC.x - CAM_PAN_EDGE) / (1 - CAM_PAN_EDGE);
     } else if (mouseNDC.x < -CAM_PAN_EDGE) {
