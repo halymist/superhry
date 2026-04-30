@@ -43,10 +43,12 @@ const (
 	pickupRadius           = 1.2 // pickup-collection distance
 	pickupLifeMS           = 30000
 	buffPickupLifeMS       = 30000
-	buffDurationMS         = 60000
+	buffDurationMS         = 30000
 	buffStatPct            = 0.20
+	buffDmgPct             = 0.10
 	npcSayMS               = 7000
 	npcRespawnMS           = 5000
+	npcForcedAggroMS       = 10000
 	dogHP                  = 120
 	dogAggroRange          = 11.0
 	dogDeaggroRng          = 16.0
@@ -74,7 +76,8 @@ const (
 	namestekChargeStunMS   = 550
 	reditelHP              = 600
 	reditelRegenPS         = 18.0
-	namestekTalkCDMS       = 10000
+	dogTalkCDMS            = 5000
+	namestekTalkCDMS       = 5000
 	sofieFollowRange       = 10.0
 	sofieFollowDrop        = 16.0
 	sofieFollowSpeed       = 1.85
@@ -94,6 +97,29 @@ const (
 	reditelBeamRad         = 0.92
 	reditelBeamDmg         = 80
 	reditelBeamWindupMS    = 700
+	reditelBarrageCDMS     = 18000
+	reditelBarrageGapMS    = 400
+	curdaHP                = 240
+	curdaRegenPS           = 8.0
+	curdaAggroRng          = 13.0
+	curdaDeaggroRng        = 19.0
+	curdaWanderSpeed       = 1.7
+	curdaKiteSpeed         = 4.2
+	curdaPreferredDist     = 9.0
+	curdaTalkCDMS          = 5000
+	curdaStunSpeed         = 22.0
+	curdaStunRange         = 18.0
+	curdaStunRad           = 0.60
+	curdaStunDmg           = 14
+	curdaStunMS            = 900
+	curdaStunCDMS          = 7000
+	curdaSalvaSpeed        = 24.0
+	curdaSalvaRange        = 16.0
+	curdaSalvaRad          = 0.30
+	curdaSalvaDmg          = 8
+	curdaSalvaShots        = 5
+	curdaSalvaIntervalMS   = 110
+	curdaSalvaCDMS         = 3250
 
 	chargeCost       = 40
 	chargeDashDist   = 10.2
@@ -205,12 +231,11 @@ type pickup struct {
 var (
 	namestekLines = []string{
 		"Nevíte, kde je Martin?",
-		"Je tady Martin",
-		"Martin?",
 		"Pošlete za mnou Martina",
 		"Hledám Martina",
 		"Neviděl někdo Martina?",
-		"Martineee?",
+		"Martin se mi neozývá",
+		"Měl dnes dorazit Martin",
 		"Byl tady Martin?",
 	}
 	dogLines = []string{
@@ -226,6 +251,12 @@ var (
 		"Спасибо!",
 		"Давай, погнали!",
 		"Ну ладно...",
+	}
+	curdaLines = []string{
+		"Zálohujete na one-drive?",
+		"Win11 je nejlepší operační systém",
+		"Já si to vyfotim",
+		"Seberu vám počítač",
 	}
 )
 
@@ -262,28 +293,37 @@ type npcState struct {
 }
 
 type npcRuntime struct {
-	state         npcState
-	vx            float64
-	vz            float64
-	hpAcc         float64
-	nextDirMS     int64
-	nextSayMS     int64
-	nextHitMS     int64
-	nextDropMS    int64
-	nextBeamMS    int64
-	beamFireMS    int64
-	beamDX        float64
-	beamDZ        float64
-	burstEndMS    int64
-	nextChargeMS  int64
-	chargeEndMS   int64
-	chargeHitDone bool
-	pauseToMS     int64
-	followToMS    int64
-	aggroID       uint64
-	stunUntilMS   int64
-	allyHPAcc     float64
-	allyManaAcc   float64
+	state            npcState
+	vx               float64
+	vz               float64
+	hpAcc            float64
+	nextDirMS        int64
+	nextSayMS        int64
+	nextHitMS        int64
+	nextDropMS       int64
+	nextBeamMS       int64
+	beamFireMS       int64
+	beamDX           float64
+	beamDZ           float64
+	burstEndMS       int64
+	nextChargeMS     int64
+	chargeEndMS      int64
+	chargeHitDone    bool
+	pauseToMS        int64
+	followToMS       int64
+	aggroID          uint64
+	stunUntilMS      int64
+	forcedAggroMS    int64
+	nextBarrageMS    int64
+	nextBarrageReady int64
+	barrageShots     int
+	barrageTarget    uint64
+	nextStunMS       int64
+	nextSalvaMS      int64
+	salvaShots       int
+	nextSalvaShot    int64
+	allyHPAcc        float64
+	allyManaAcc      float64
 }
 
 // --- inbound client messages ---
@@ -503,11 +543,12 @@ func (h *ArenaHub) initNPCs() {
 		nextChargeMS: now + 2500,
 	}
 	h.npcs[1002] = &npcRuntime{
-		state:      npcState{ID: 1002, Kind: "reditel", Name: "Ředitel", X: 10, Z: -8, Facing: 0, Scale: 1.0, HP: reditelHP, MaxHP: reditelHP, Alive: true},
-		nextDirMS:  now + 900,
-		nextSayMS:  now + 1000000,
-		nextDropMS: now + reditelGoldDropMS,
-		nextBeamMS: now + 7000,
+		state:            npcState{ID: 1002, Kind: "reditel", Name: "Ředitel", X: 10, Z: -8, Facing: 0, Scale: 1.0, HP: reditelHP, MaxHP: reditelHP, Alive: true},
+		nextDirMS:        now + 900,
+		nextSayMS:        now + 1000000,
+		nextDropMS:       now + reditelGoldDropMS,
+		nextBeamMS:       now + 7000,
+		nextBarrageReady: now,
 	}
 	h.npcs[1003] = &npcRuntime{
 		state:     npcState{ID: 1003, Kind: "pes", Name: "Pes", X: 2, Z: 2, Facing: 0, Scale: 1.0, HP: dogHP, MaxHP: dogHP, Alive: true},
@@ -520,6 +561,84 @@ func (h *ArenaHub) initNPCs() {
 		nextSayMS: now + 3500,
 		pauseToMS: now + 1200,
 	}
+	h.npcs[1005] = &npcRuntime{
+		state:       npcState{ID: 1005, Kind: "curda", Name: "Čurda", X: 16, Z: 3, Facing: 0, Scale: 1.0, HP: curdaHP, MaxHP: curdaHP, Alive: true},
+		nextDirMS:   now + 1100,
+		nextSayMS:   now + 2800,
+		nextStunMS:  now + 2000,
+		nextSalvaMS: now + 3000,
+	}
+}
+
+func (h *ArenaHub) closestAlivePlayer(x, z float64) (uint64, float64, float64, bool) {
+	bestID := uint64(0)
+	bestX := 0.0
+	bestZ := 0.0
+	bestD2 := math.MaxFloat64
+	for _, c := range h.clients {
+		c.mu.Lock()
+		alive := c.state.Alive
+		px := c.state.X
+		pz := c.state.Z
+		pid := c.id
+		c.mu.Unlock()
+		if !alive {
+			continue
+		}
+		dx := px - x
+		dz := pz - z
+		d2 := dx*dx + dz*dz
+		if d2 < bestD2 {
+			bestD2 = d2
+			bestID = pid
+			bestX = px
+			bestZ = pz
+		}
+	}
+	if bestID == 0 {
+		return 0, 0, 0, false
+	}
+	return bestID, bestX, bestZ, true
+}
+
+func (h *ArenaHub) alivePlayerByID(id uint64) (float64, float64, bool) {
+	tc, ok := h.clients[id]
+	if !ok {
+		return 0, 0, false
+	}
+	tc.mu.Lock()
+	alive := tc.state.Alive
+	x := tc.state.X
+	z := tc.state.Z
+	tc.mu.Unlock()
+	if !alive {
+		return 0, 0, false
+	}
+	return x, z, true
+}
+
+func (h *ArenaHub) scheduleReditelBeam(n *npcRuntime, targetID uint64, nowMS int64) bool {
+	tx, tz, ok := h.alivePlayerByID(targetID)
+	if !ok {
+		_, tx, tz, ok = h.closestAlivePlayer(n.state.X, n.state.Z)
+		if !ok {
+			return false
+		}
+	}
+	dx := tx - n.state.X
+	dz := tz - n.state.Z
+	d := math.Hypot(dx, dz)
+	if d <= 0.001 {
+		return false
+	}
+	n.state.Facing = math.Atan2(dx, dz)
+	n.beamDX = dx / d
+	n.beamDZ = dz / d
+	n.beamFireMS = nowMS + reditelBeamWindupMS
+	n.vx = 0
+	n.vz = 0
+	h.spawnReditelBeamWarning(n.state.ID, n.state.X+n.beamDX*1.0, n.state.Z+n.beamDZ*1.0, n.beamDX, n.beamDZ)
+	return true
 }
 
 func (h *ArenaHub) Run() {
@@ -740,6 +859,15 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 				n.nextSayMS = nowMS + 2400
 				n.nextHitMS = 0
 				n.stunUntilMS = 0
+				n.forcedAggroMS = 0
+				n.barrageShots = 0
+				n.barrageTarget = 0
+				n.nextBarrageMS = 0
+				n.nextBarrageReady = 0
+				n.nextStunMS = 0
+				n.nextSalvaMS = 0
+				n.salvaShots = 0
+				n.nextSalvaShot = 0
 				n.hpAcc = 0
 				if n.state.Kind == "pes" {
 					n.state.HP = dogHP
@@ -757,6 +885,14 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 					n.state.MaxHP = reditelHP
 					n.nextBeamMS = nowMS + 7000
 					n.beamFireMS = 0
+					n.nextBarrageMS = nowMS
+					n.nextBarrageReady = nowMS
+				}
+				if n.state.Kind == "curda" {
+					n.state.HP = curdaHP
+					n.state.MaxHP = curdaHP
+					n.nextStunMS = nowMS + 2000
+					n.nextSalvaMS = nowMS + 3000
 				}
 				n.state.StunUntil = 0
 			}
@@ -840,44 +976,16 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 					n.beamFireMS = 0
 				}
 			}
-			if n.beamFireMS == 0 && nowMS >= n.nextBeamMS {
-				var target *client
-				minD2 := math.MaxFloat64
-				for _, c := range h.clients {
-					c.mu.Lock()
-					alive := c.state.Alive
-					px := c.state.X
-					pz := c.state.Z
-					c.mu.Unlock()
-					if !alive {
-						continue
-					}
-					dx := px - n.state.X
-					dz := pz - n.state.Z
-					d2 := dx*dx + dz*dz
-					if d2 < minD2 {
-						minD2 = d2
-						target = c
-					}
+			if n.beamFireMS == 0 && n.barrageShots > 0 && nowMS >= n.nextBarrageMS {
+				if h.scheduleReditelBeam(n, n.barrageTarget, nowMS) {
+					n.barrageShots--
+					n.nextBarrageMS = nowMS + reditelBeamWindupMS + reditelBarrageGapMS
+				} else {
+					n.barrageShots = 0
 				}
-				if target != nil {
-					target.mu.Lock()
-					tx := target.state.X
-					tz := target.state.Z
-					target.mu.Unlock()
-					dx := tx - n.state.X
-					dz := tz - n.state.Z
-					d := math.Hypot(dx, dz)
-					if d > 0.001 {
-						n.state.Facing = math.Atan2(dx, dz)
-						n.beamDX = dx / d
-						n.beamDZ = dz / d
-						n.beamFireMS = nowMS + reditelBeamWindupMS
-						n.vx = 0
-						n.vz = 0
-						h.spawnReditelBeamWarning(n.state.ID, n.state.X+n.beamDX*1.0, n.state.Z+n.beamDZ*1.0, n.beamDX, n.beamDZ)
-					}
-				}
+			}
+			if n.beamFireMS == 0 && n.barrageShots == 0 && nowMS >= n.nextBeamMS {
+				h.scheduleReditelBeam(n, 0, nowMS)
 				n.nextBeamMS = nowMS + reditelBeamCDMS + int64(rand.Intn(4000))
 			}
 			if n.beamFireMS == 0 && nowMS >= n.pauseToMS && n.burstEndMS == 0 {
@@ -960,7 +1068,7 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 					if tAlive {
 						dx := tx - n.state.X
 						dz := tz - n.state.Z
-						if dx*dx+dz*dz <= dogDeaggroRng*dogDeaggroRng {
+						if nowMS < n.forcedAggroMS || dx*dx+dz*dz <= dogDeaggroRng*dogDeaggroRng {
 							hasTarget = true
 						}
 					}
@@ -974,15 +1082,15 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 				if closestID != 0 && closestD2 <= dogAggroRange*dogAggroRange {
 					n.aggroID = closestID
 					hasTarget = true
-					n.nextSayMS = nowMS
+					n.nextSayMS = nowMS + dogTalkCDMS + int64(rand.Intn(2500))
 				}
 			}
 
 			if hasTarget {
-				if nowMS >= n.nextSayMS {
+				if nowMS >= n.nextSayMS && (n.state.SayUntil <= 0 || nowMS >= n.state.SayUntil) {
 					n.state.Say = pickDifferentLine(dogLines, n.state.Say)
 					n.state.SayUntil = nowMS + npcSayMS
-					n.nextSayMS = nowMS + 9000 + int64(rand.Intn(4000))
+					n.nextSayMS = nowMS + dogTalkCDMS + int64(rand.Intn(2500))
 				}
 				tc := h.clients[n.aggroID]
 				if tc != nil {
@@ -1047,7 +1155,7 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 					if tAlive {
 						dx := tx - n.state.X
 						dz := tz - n.state.Z
-						if dx*dx+dz*dz <= namestekDeaggroRng*namestekDeaggroRng {
+						if nowMS < n.forcedAggroMS || dx*dx+dz*dz <= namestekDeaggroRng*namestekDeaggroRng {
 							hasTarget = true
 						}
 					}
@@ -1061,15 +1169,15 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 				if closestID != 0 && closestD2 <= namestekAggroRng*namestekAggroRng {
 					n.aggroID = closestID
 					hasTarget = true
-					n.nextSayMS = nowMS
+					n.nextSayMS = nowMS + namestekTalkCDMS + int64(rand.Intn(2500))
 				}
 			}
 
 			if hasTarget {
-				if nowMS >= n.nextSayMS {
+				if nowMS >= n.nextSayMS && (n.state.SayUntil <= 0 || nowMS >= n.state.SayUntil) {
 					n.state.Say = pickDifferentLine(namestekLines, n.state.Say)
 					n.state.SayUntil = nowMS + npcSayMS
-					n.nextSayMS = nowMS + 9000 + int64(rand.Intn(5000))
+					n.nextSayMS = nowMS + namestekTalkCDMS + int64(rand.Intn(2500))
 				}
 				tc := h.clients[n.aggroID]
 				if tc != nil {
@@ -1118,6 +1226,115 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 				n.state.Facing = math.Atan2(n.vx, n.vz)
 				n.nextDirMS = nowMS + 1400 + int64(rand.Intn(2600))
 			}
+		} else if n.state.Kind == "curda" {
+			if n.state.MaxHP <= 0 {
+				n.state.MaxHP = curdaHP
+			}
+			if n.state.HP < n.state.MaxHP {
+				n.hpAcc += curdaRegenPS * dt
+				if n.hpAcc >= 1 {
+					add := int(n.hpAcc)
+					n.hpAcc -= float64(add)
+					n.state.HP += add
+					if n.state.HP > n.state.MaxHP {
+						n.state.HP = n.state.MaxHP
+					}
+				}
+			} else {
+				n.hpAcc = 0
+			}
+
+			hasTarget := false
+			if n.aggroID != 0 {
+				if tc, ok := h.clients[n.aggroID]; ok {
+					tc.mu.Lock()
+					tAlive := tc.state.Alive
+					tx := tc.state.X
+					tz := tc.state.Z
+					tc.mu.Unlock()
+					if tAlive {
+						dx := tx - n.state.X
+						dz := tz - n.state.Z
+						if nowMS < n.forcedAggroMS || dx*dx+dz*dz <= curdaDeaggroRng*curdaDeaggroRng {
+							hasTarget = true
+						}
+					}
+				}
+			}
+
+			if !hasTarget {
+				n.aggroID = 0
+				n.state.Say = ""
+				n.state.SayUntil = 0
+				bestID, _, _, ok := h.closestAlivePlayer(n.state.X, n.state.Z)
+				if ok {
+					tx, tz, alive := h.alivePlayerByID(bestID)
+					if alive {
+						dx := tx - n.state.X
+						dz := tz - n.state.Z
+						if dx*dx+dz*dz <= curdaAggroRng*curdaAggroRng {
+							n.aggroID = bestID
+							hasTarget = true
+							n.nextSayMS = nowMS + curdaTalkCDMS + int64(rand.Intn(2500))
+						}
+					}
+				}
+			}
+
+			if hasTarget {
+				if nowMS >= n.nextSayMS && (n.state.SayUntil <= 0 || nowMS >= n.state.SayUntil) {
+					n.state.Say = pickDifferentLine(curdaLines, n.state.Say)
+					n.state.SayUntil = nowMS + npcSayMS
+					n.nextSayMS = nowMS + curdaTalkCDMS + int64(rand.Intn(2500))
+				}
+				tx, tz, alive := h.alivePlayerByID(n.aggroID)
+				if alive {
+					dx := tx - n.state.X
+					dz := tz - n.state.Z
+					d := math.Hypot(dx, dz)
+					if d > 0.001 {
+						n.state.Facing = math.Atan2(dx, dz)
+					}
+
+					if n.salvaShots > 0 && nowMS >= n.nextSalvaShot {
+						if d > 0.001 {
+							h.spawnNPCProjectileCustom(n.state.ID, n.state.X+dx/d*0.9, n.state.Z+dz/d*0.9, dx/d, dz/d, curdaSalvaSpeed, curdaSalvaRange, curdaSalvaRad, curdaSalvaDmg, "curda_salva")
+						}
+						n.salvaShots--
+						n.nextSalvaShot = nowMS + curdaSalvaIntervalMS
+					}
+
+					if nowMS >= n.nextStunMS && d <= curdaAggroRng && d > 0.001 {
+						h.spawnNPCProjectileCustom(n.state.ID, n.state.X+dx/d*0.9, n.state.Z+dz/d*0.9, dx/d, dz/d, curdaStunSpeed, curdaStunRange, curdaStunRad, curdaStunDmg, "curda_stun")
+						n.nextStunMS = nowMS + curdaStunCDMS
+					}
+					if nowMS >= n.nextSalvaMS && n.salvaShots == 0 {
+						n.salvaShots = curdaSalvaShots
+						n.nextSalvaShot = nowMS
+						n.nextSalvaMS = nowMS + curdaSalvaCDMS
+					}
+
+					if d > 0.001 {
+						if d < curdaPreferredDist {
+							n.vx = -dx / d * curdaKiteSpeed
+							n.vz = -dz / d * curdaKiteSpeed
+						} else {
+							side := 1.0
+							if n.state.ID%2 == 0 {
+								side = -1.0
+							}
+							n.vx = (dz / d) * curdaWanderSpeed * side
+							n.vz = (-dx / d) * curdaWanderSpeed * side
+						}
+					}
+				}
+			} else if nowMS >= n.nextDirMS {
+				ang := rand.Float64() * math.Pi * 2
+				n.vx = math.Sin(ang) * curdaWanderSpeed
+				n.vz = math.Cos(ang) * curdaWanderSpeed
+				n.state.Facing = math.Atan2(n.vx, n.vz)
+				n.nextDirMS = nowMS + 1400 + int64(rand.Intn(2600))
+			}
 		} else if n.state.Kind == "sofie" {
 			following := false
 			if n.aggroID != 0 && nowMS < n.followToMS {
@@ -1135,7 +1352,7 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 							if nowMS >= n.nextSayMS && (n.state.SayUntil <= 0 || nowMS >= n.state.SayUntil) {
 								n.state.Say = pickDifferentLine(sofieLines, n.state.Say)
 								n.state.SayUntil = nowMS + npcSayMS
-								n.nextSayMS = nowMS + 2200 + int64(rand.Intn(2200))
+								n.nextSayMS = nowMS + 1600 + int64(rand.Intn(1400))
 							}
 							d := math.Sqrt(d2)
 							if d > sofieTouchRange {
@@ -1216,7 +1433,7 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 						n.aggroID = bestID
 						n.followToMS = nowMS + sofieFollowMS
 						n.pauseToMS = n.followToMS + sofieFollowCDMS
-						n.nextSayMS = nowMS
+						n.nextSayMS = nowMS + 2200 + int64(rand.Intn(2200))
 					}
 				}
 
@@ -1261,7 +1478,7 @@ func (h *ArenaHub) updateNPCs(now time.Time, dt float64) {
 	}
 }
 
-func (h *ArenaHub) spawnNPCProjectile(owner uint64, x, z, dx, dz float64) {
+func (h *ArenaHub) spawnNPCProjectileCustom(owner uint64, x, z, dx, dz, speed, rng, rad float64, dmg int, kind string) {
 	id := h.nextNpcPID.Add(1)
 	h.npcProjs[id] = &npcProjectile{
 		ID:    id,
@@ -1270,11 +1487,11 @@ func (h *ArenaHub) spawnNPCProjectile(owner uint64, x, z, dx, dz float64) {
 		Z:     z,
 		DX:    dx,
 		DZ:    dz,
-		Speed: reditelMissileSpeed,
-		Range: reditelMissileRange,
-		Rad:   reditelMissileRad,
-		Dmg:   reditelMissileDmg,
-		Kind:  "reditel",
+		Speed: speed,
+		Range: rng,
+		Rad:   rad,
+		Dmg:   dmg,
+		Kind:  kind,
 	}
 	h.broadcastJSON(sMsg{Type: "fire", Data: sFire{
 		Owner: owner,
@@ -1283,9 +1500,13 @@ func (h *ArenaHub) spawnNPCProjectile(owner uint64, x, z, dx, dz float64) {
 		OZ:    z,
 		DX:    dx,
 		DZ:    dz,
-		Kind:  "reditel",
+		Kind:  kind,
 		T:     time.Now().UnixMilli(),
 	}})
+}
+
+func (h *ArenaHub) spawnNPCProjectile(owner uint64, x, z, dx, dz float64) {
+	h.spawnNPCProjectileCustom(owner, x, z, dx, dz, reditelMissileSpeed, reditelMissileRange, reditelMissileRad, reditelMissileDmg, "reditel")
 }
 
 func (h *ArenaHub) spawnReditelBeam(owner uint64, x, z, dx, dz float64) {
@@ -1905,7 +2126,7 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 	target, ok := h.clients[ev.target]
 	if !ok {
 		n, isNPC := h.npcs[ev.target]
-		if !isNPC || !n.state.Alive || (n.state.Kind != "pes" && n.state.Kind != "reditel" && n.state.Kind != "namestek") {
+		if !isNPC || !n.state.Alive || (n.state.Kind != "pes" && n.state.Kind != "reditel" && n.state.Kind != "namestek" && n.state.Kind != "curda") {
 			return
 		}
 		dmg := ev.dmg
@@ -1913,7 +2134,7 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 			dmg = hitDamage
 		}
 		if hasDmgBuff {
-			dmg = int(math.Round(float64(dmg) * (1.0 + buffStatPct)))
+			dmg = int(math.Round(float64(dmg) * (1.0 + buffDmgPct)))
 		}
 		maxNPC := n.state.MaxHP
 		if maxNPC <= 0 {
@@ -1923,6 +2144,9 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 			} else if n.state.Kind == "namestek" {
 				maxNPC = namestekHP
 				n.state.MaxHP = namestekHP
+			} else if n.state.Kind == "curda" {
+				maxNPC = curdaHP
+				n.state.MaxHP = curdaHP
 			} else {
 				maxNPC = dogHP
 				n.state.MaxHP = dogHP
@@ -1932,6 +2156,39 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 			dmg = maxNPC
 		}
 		n.state.HP -= dmg
+		if shooter := h.clients[ev.shooter]; shooter != nil {
+			shooter.mu.Lock()
+			shooterAlive := shooter.state.Alive
+			shooterID := shooter.id
+			shooter.mu.Unlock()
+			if shooterAlive {
+				switch n.state.Kind {
+				case "pes", "namestek", "curda":
+					if n.aggroID == 0 {
+						n.aggroID = shooterID
+						n.forcedAggroMS = nowMS + npcForcedAggroMS
+						n.nextDirMS = nowMS + 250
+						switch n.state.Kind {
+						case "pes":
+							n.nextSayMS = nowMS + dogTalkCDMS + int64(rand.Intn(2500))
+						case "namestek":
+							n.nextSayMS = nowMS + namestekTalkCDMS + int64(rand.Intn(2500))
+						case "curda":
+							n.nextSayMS = nowMS + curdaTalkCDMS + int64(rand.Intn(2500))
+						}
+					}
+				case "reditel":
+					n.aggroID = shooterID
+					n.forcedAggroMS = nowMS + npcForcedAggroMS
+					if n.barrageShots == 0 && nowMS >= n.nextBarrageReady {
+						n.barrageShots = 3
+						n.barrageTarget = shooterID
+						n.nextBarrageMS = nowMS
+						n.nextBarrageReady = nowMS + reditelBarrageCDMS
+					}
+				}
+			}
+		}
 		kind := h.projectileKind(ev.shooter, ev.pid)
 		killed := n.state.HP <= 0
 		if killed {
@@ -1943,10 +2200,17 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 			n.state.SayUntil = 0
 			n.hpAcc = 0
 			n.stunUntilMS = 0
+			n.forcedAggroMS = 0
+			n.barrageShots = 0
+			n.barrageTarget = 0
+			n.nextBarrageMS = 0
+			n.nextBarrageReady = 0
+			n.salvaShots = 0
+			n.nextSalvaShot = 0
 			if n.state.Kind == "pes" {
 				h.spawnPickup("gold", n.state.X, n.state.Z, true, time.Now())
 			} else if n.state.Kind == "namestek" {
-				coins := 1 + rand.Intn(2)
+				coins := 2
 				for i := 0; i < coins; i++ {
 					ang := rand.Float64() * 2 * math.Pi
 					rad := 0.6 + rand.Float64()*1.6
@@ -1959,6 +2223,15 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 				for i := 0; i < coins; i++ {
 					ang := rand.Float64() * 2 * math.Pi
 					rad := 0.6 + rand.Float64()*1.6
+					px := n.state.X + math.Sin(ang)*rad
+					pz := n.state.Z + math.Cos(ang)*rad
+					h.spawnPickup("gold", px, pz, true, time.Now())
+				}
+			} else if n.state.Kind == "curda" {
+				coins := 2
+				for i := 0; i < coins; i++ {
+					ang := rand.Float64() * 2 * math.Pi
+					rad := 0.6 + rand.Float64()*1.2
 					px := n.state.X + math.Sin(ang)*rad
 					pz := n.state.Z + math.Cos(ang)*rad
 					h.spawnPickup("gold", px, pz, true, time.Now())
@@ -1980,12 +2253,17 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 	}
 	h.recomputePlayerDerivedStatsLocked(target, nowMS)
 	kind := h.projectileKind(ev.shooter, ev.pid)
+	if kind == "" && ev.pid != 0 {
+		if pr, ok := h.npcProjs[ev.pid]; ok {
+			kind = pr.Kind
+		}
+	}
 	dmg := ev.dmg
 	if dmg <= 0 {
 		dmg = hitDamage
 	}
 	if hasDmgBuff {
-		dmg = int(math.Round(float64(dmg) * (1.0 + buffStatPct)))
+		dmg = int(math.Round(float64(dmg) * (1.0 + buffDmgPct)))
 	}
 	maxHP := target.state.MaxHP
 	if maxHP <= 0 {
@@ -2011,6 +2289,11 @@ func (h *ArenaHub) applyHit(ev hitEvent) {
 		target.state.Gold = 0
 	} else if kind == "x" {
 		until := now.UnixMilli() + xStunBaseMS + h.stunExtraFromUpgrade(ev.shooter)
+		if until > target.state.StunUntil {
+			target.state.StunUntil = until
+		}
+	} else if kind == "curda_stun" {
+		until := now.UnixMilli() + curdaStunMS
 		if until > target.state.StunUntil {
 			target.state.StunUntil = until
 		}

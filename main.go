@@ -19,7 +19,7 @@ import (
 var webFS embed.FS
 
 func main() {
-	addr := ":1010"
+	addr := ":8080"
 	if v := os.Getenv("PORT"); v != "" {
 		addr = ":" + v
 	}

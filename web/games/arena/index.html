@@ -20,9 +20,12 @@
     <div class="hud">
       <div id="respawn-indicator" class="respawn-indicator" hidden>Respawn in 10s</div>
 
-      <div class="hp-center-panel">
-        <div id="active-buffs" class="active-buffs" aria-label="Active buffs"></div>
+      <div class="buff-stack" aria-label="Active buffs">
+        <div id="active-buffs" class="active-buffs"></div>
         <div id="buff-status-text" class="buff-status-text">Žádné aktivní efekty</div>
+      </div>
+
+      <div class="hp-center-panel">
         <div id="buff-w-indicator" class="buff-indicator" hidden>Sprint</div>
         <div id="r-cast-wrap" class="cast-bar-wrap" hidden>
           <div class="cast-bar-track">

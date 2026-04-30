@@ -170,12 +170,21 @@ html, body {
   pointer-events: auto;
 }
 
+.hud .buff-stack {
+  position: absolute;
+  left: 50%;
+  bottom: 178px;
+  transform: translateX(-50%);
+  width: 220px;
+  pointer-events: none;
+}
+
 .hud .active-buffs {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  width: 220px;
-  margin: 0 auto 6px;
+  width: 100%;
+  margin: 0;
 }
 
 .hud .active-buffs:empty {

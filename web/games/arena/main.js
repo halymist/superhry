@@ -113,8 +113,10 @@ const PICKUP_RADIUS = 0.6;
 const DOG_MAX_HP = 120;
 const NAMESTEK_MAX_HP = 320;
 const REDITEL_MAX_HP = 720;
+const CURDA_MAX_HP = 240;
 const REDITEL_BEAM_WARN_MS = 700;
 const REDITEL_BEAM_WARN_RANGE = 44.0;
+const BUFF_DURATION_MS = 30000;
 
 const INTERP_DELAY_MS = 120; // remote interpolation
 const SEND_HZ = 20;
@@ -267,7 +269,7 @@ const BUFF_DEFS = {
   speed: { key: 'speed', label: 'Rychlost', desc: 'Rychlost pohybu +20%', color: '#4fc3ff' },
   hp: { key: 'hp', label: 'Životy', desc: 'Max. životy +20%', color: '#ff6e8a' },
   mana: { key: 'mana', label: 'Mana', desc: 'Max. mana +20%', color: '#6bb7ff' },
-  dmg: { key: 'dmg', label: 'Poškození', desc: 'Poškození +20%', color: '#ff9b5c' },
+  dmg: { key: 'dmg', label: 'Poškození', desc: 'Poškození +10%', color: '#ff9b5c' },
 };
 
 function normalizeBuffKind(kind) {
@@ -477,7 +479,7 @@ function makeTalkSprite(text) {
   const c = document.createElement('canvas');
   c.width = 420; c.height = 76;
   const ctx = c.getContext('2d');
-  drawTalkSprite(ctx, text || '');
+  drawTalkSprite(ctx, text || '', 28);
   const tex = new THREE.CanvasTexture(c);
   tex.minFilter = THREE.LinearFilter;
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
@@ -508,7 +510,7 @@ function makeStunSprite() {
   sp.userData.tex = tex;
   return sp;
 }
-function drawTalkSprite(ctx, text) {
+function drawTalkSprite(ctx, text, fontPx = 28) {
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;
   ctx.clearRect(0, 0, w, h);
@@ -516,7 +518,7 @@ function drawTalkSprite(ctx, text) {
   ctx.fillStyle = 'rgba(0,0,0,0.65)';
   roundRect(ctx, 6, 8, w - 12, h - 20, 10);
   ctx.fill();
-  ctx.font = 'bold 28px ui-monospace, Consolas, monospace';
+  ctx.font = `bold ${fontPx}px ui-monospace, Consolas, monospace`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#e8f7ff';
@@ -535,16 +537,19 @@ function setTalkSprite(sp, text) {
   const t = text || '';
   const c = sp.userData.canvas;
   const ctx = sp.userData.ctx;
-  ctx.font = 'bold 28px ui-monospace, Consolas, monospace';
+  const fontPx = 28;
+  const maxW = 1200;
+  const minW = 140;
+  ctx.font = `bold ${fontPx}px ui-monospace, Consolas, monospace`;
   const measured = t ? Math.ceil(ctx.measureText(t).width) : 0;
-  const w = Math.max(140, Math.min(420, measured + 44));
+  const w = Math.max(minW, Math.min(maxW, measured + 44));
   const h = 76;
   if (c.width !== w || c.height !== h) {
     c.width = w;
     c.height = h;
     sp.scale.set((w / 420) * 3.8, 0.72, 1);
   }
-  drawTalkSprite(ctx, t);
+  drawTalkSprite(ctx, t, fontPx);
   sp.userData.tex.needsUpdate = true;
 }
 function makeHpSprite() {
@@ -600,6 +605,7 @@ function makeNPCMesh(n) {
   const isReditel = n.kind === 'reditel';
   const isDog = n.kind === 'pes';
   const isSofie = n.kind === 'sofie';
+  const isCurda = n.kind === 'curda';
   if (isDog) {
     const bodyMat = new THREE.MeshStandardMaterial({ color: 0x8c6a45, roughness: 0.7, metalness: 0.02, emissive: 0x3d2a18, emissiveIntensity: 0.2 });
     const headMat = new THREE.MeshStandardMaterial({ color: 0xa67b4f, roughness: 0.65, metalness: 0.02 });
@@ -670,6 +676,21 @@ function makeNPCMesh(n) {
     );
     face.position.set(0, 1.58, 0.48);
     g.add(face);
+  } else if (isCurda) {
+    const coatMat = new THREE.MeshStandardMaterial({ color: 0xb4cc64, roughness: 0.56, metalness: 0.05, emissive: 0x4f5f28, emissiveIntensity: 0.2 });
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.45, 1.08, 16), coatMat);
+    torso.position.y = 0.95;
+    g.add(torso);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.23, 14, 11), new THREE.MeshStandardMaterial({ color: 0xf0dccd, roughness: 0.66 }));
+    head.position.set(0, 1.58, 0.2);
+    g.add(head);
+    const glasses = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.08, 0.04), new THREE.MeshStandardMaterial({ color: 0x1d1f29, roughness: 0.4, metalness: 0.2 }));
+    glasses.position.set(0, 1.59, 0.45);
+    g.add(glasses);
+    const phone = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.24, 0.03), new THREE.MeshStandardMaterial({ color: 0x2b2f3f, emissive: 0x141823, emissiveIntensity: 0.35 }));
+    phone.position.set(0.26, 1.0, 0.35);
+    phone.rotation.y = -0.6;
+    g.add(phone);
   } else {
     const color = 0x86c2ff;
     const body = new THREE.Mesh(
@@ -705,15 +726,20 @@ function makeNPCMesh(n) {
     hpSp.position.y = 2.15;
     g.add(hpSp);
     g.userData.hpSprite = hpSp;
+  } else if (isCurda) {
+    const hpSp = makeHpSprite();
+    hpSp.position.y = 2.15;
+    g.add(hpSp);
+    g.userData.hpSprite = hpSp;
   }
 
   const talkSp = makeTalkSprite('');
-  talkSp.position.y = isDog ? 2.7 : 3.75;
+  talkSp.position.y = isDog ? 2.7 : (isCurda ? 3.5 : 3.75);
   talkSp.visible = false;
   g.add(talkSp);
 
   const stunSp = makeStunSprite();
-  stunSp.position.y = isDog ? 2.25 : (isReditel ? 2.85 : 3.1);
+  stunSp.position.y = isDog ? 2.25 : (isReditel ? 2.85 : (isCurda ? 3.0 : 3.1));
   stunSp.visible = false;
   g.add(stunSp);
 
@@ -746,8 +772,10 @@ function updateNPCsFromSnapshot(snap) {
     obj.mesh.scale.setScalar(n.scale || 1);
     obj.mesh.visible = obj.alive;
     setNameSprite(obj.mesh.userData.nameSprite, n.name || n.kind, '#e6f2ff');
-    if ((obj.kind === 'pes' || obj.kind === 'reditel' || obj.kind === 'namestek') && obj.mesh.userData.hpSprite) {
-      const fallbackMax = obj.kind === 'reditel' ? REDITEL_MAX_HP : (obj.kind === 'namestek' ? NAMESTEK_MAX_HP : DOG_MAX_HP);
+    if ((obj.kind === 'pes' || obj.kind === 'reditel' || obj.kind === 'namestek' || obj.kind === 'curda') && obj.mesh.userData.hpSprite) {
+      const fallbackMax = obj.kind === 'reditel'
+        ? REDITEL_MAX_HP
+        : (obj.kind === 'namestek' ? NAMESTEK_MAX_HP : (obj.kind === 'curda' ? CURDA_MAX_HP : DOG_MAX_HP));
       const maxHp = obj.maxHp > 0 ? obj.maxHp : fallbackMax;
       setHpSprite(obj.mesh.userData.hpSprite, obj.hp, maxHp);
       obj.mesh.userData.hpSprite.visible = obj.alive;
@@ -1233,7 +1261,7 @@ function updateActiveBuffIcons(nowMs) {
     const def = BUFF_DEFS[e.kind];
     if (!def) continue;
     const remainMS = Math.max(0, e.until - nowMs);
-    const ratio = Math.max(0, Math.min(1, remainMS / 60000));
+    const ratio = Math.max(0, Math.min(1, remainMS / BUFF_DURATION_MS));
     const secs = Math.ceil(remainMS / 1000);
 
     const row = document.createElement('div');
@@ -1775,6 +1803,10 @@ function projectileSpec(kind, boost = null) {
       return { radius: AA_RADIUS, startSpeed: AA_SPEED_START, maxSpeed: AA_SPEED_MAX, accel: AA_ACCEL, range: AA_RANGE, dmg: AA_DAMAGE, pierce: false };
     case 'x':
       return { radius: X_RADIUS, startSpeed: X_SPEED_START, maxSpeed: X_SPEED_MAX, accel: X_ACCEL, range: X_RANGE, dmg: X_DAMAGE, pierce: false };
+    case 'curda_stun':
+      return { radius: 0.60, startSpeed: 22.0, maxSpeed: 22.0, accel: 0, range: 18.0, dmg: 14, pierce: false };
+    case 'curda_salva':
+      return { radius: 0.30, startSpeed: 24.0, maxSpeed: 24.0, accel: 0, range: 16.0, dmg: 8, pierce: false };
     default:
       return { radius: Q_RADIUS, startSpeed: Q_SPEED_START, maxSpeed: Q_SPEED_MAX, accel: Q_ACCEL, range: Q_RANGE, dmg: b.qDmg, pierce: false };
   }
@@ -1786,12 +1818,14 @@ function spawnProjectile(p) {
   let color;
   if (kind === 'reditel') color = 0xffc46b;
   else if (kind === 'reditel_beam') color = 0xff6d8a;
+  else if (kind === 'curda_stun') color = 0x8b7cff;
+  else if (kind === 'curda_salva') color = 0xffb06b;
   else if (kind === 'r')      color = p.owner === myId ? 0xff7df6 : 0xff5dc8;
   else if (kind === 'x') color = p.owner === myId ? 0x89ffde : 0x7dcfff;
   else if (kind === 'aa') color = p.owner === myId ? 0xa6f0ff : 0xfff0a0;
   else                    color = p.owner === myId ? 0xffe48a : 0xff9b66;
 
-  const geom = kind === 'x'
+  const geom = (kind === 'x' || kind === 'curda_stun')
     ? new THREE.BoxGeometry(1.2, 0.4, 0.4)
     : new THREE.SphereGeometry(spec.radius, 12, 9);
   const mesh = new THREE.Mesh(
@@ -1799,7 +1833,7 @@ function spawnProjectile(p) {
     new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: (kind === 'r' || kind === 'reditel_beam') ? 1.1 : 0.85 })
   );
   mesh.position.set(p.ox, 1.0, p.oz);
-  if (kind === 'x') {
+  if (kind === 'x' || kind === 'curda_stun') {
     mesh.rotation.y = Math.atan2(p.dx, p.dz);
   }
   scene.add(mesh);
@@ -2026,8 +2060,8 @@ function refreshProjectileCollisionTargets() {
 
   for (const [nid, n] of npcs) {
     if (!n.alive) continue;
-    if (n.kind === 'pes' || n.kind === 'reditel' || n.kind === 'namestek') {
-      const rad = n.kind === 'reditel' ? 1.05 : (n.kind === 'namestek' ? 0.72 : 0.6);
+    if (n.kind === 'pes' || n.kind === 'reditel' || n.kind === 'namestek' || n.kind === 'curda') {
+      const rad = n.kind === 'reditel' ? 1.05 : (n.kind === 'namestek' ? 0.72 : (n.kind === 'curda' ? 0.72 : 0.6));
       projectileDogTargets.push({ id: Number(nid), x: n.mesh.position.x, z: n.mesh.position.z, rad });
     } else {
       projectileBlockers.push({ id: Number(nid), x: n.mesh.position.x, z: n.mesh.position.z, rad: 0.72 });
