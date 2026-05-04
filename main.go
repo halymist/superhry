@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"embed"
-	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -15,7 +14,7 @@ import (
 	"time"
 )
 
-//go:embed web
+//go:embed index.html main.js style.css
 var webFS embed.FS
 
 func main() {
@@ -28,18 +27,7 @@ func main() {
 	go arena.Run()
 
 	mux := http.NewServeMux()
-
-	arenaSub, err := fs.Sub(webFS, "web/games/arena")
-	if err != nil {
-		log.Fatalf("embed sub: %v", err)
-	}
-	staticSub, err := fs.Sub(webFS, "web/static")
-	if err != nil {
-		log.Fatalf("embed sub static: %v", err)
-	}
-
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
-	mux.Handle("/", http.FileServer(http.FS(arenaSub)))
+	mux.Handle("/", http.FileServer(http.FS(webFS)))
 
 	mux.HandleFunc("/ws/arena", arena.ServeWS)
 
