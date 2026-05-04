@@ -12,8 +12,8 @@ const Q_SPEED_MAX   = 31.0;
 const Q_ACCEL       = 0.0;
 const Q_RANGE      = 19.0;
 const Q_RADIUS     = 0.24;
-const Q_BASE_DAMAGE = 8;
-const Q_DAMAGE_STEP = 4;
+const Q_BASE_DAMAGE = 6;
+const Q_DAMAGE_STEP = 2;
 const Q_COOLDOWN_MS = 5600;
 const Q_COST       = 35;
 const Q_BURST_MS = 760;
@@ -35,14 +35,14 @@ const R_ACCEL       = 18.0;
 const R_RANGE      = 60.0;
 const R_RADIUS     = 1.45;
 const R_DAMAGE     = 100;
-const R_DAMAGE_STEP = 30;
+const R_DAMAGE_STEP = 16;
 const R_COOLDOWN_MS = 2500;
 const R_COST       = 75;
 const R_CAST_MS    = 1000;
 
 // C dash (Charge)
 const C_COOLDOWN_MS = 7000;
-const C_COST        = 40;
+const C_COST        = 30;
 const C_DASH_DIST   = 10.2;
 
 const PLAYER_RADIUS = 0.6;
@@ -59,13 +59,19 @@ const E_COST   = 50;
 const W_SPEED_MULT = 1.3;
 const W_DURATION_MS = 8000;
 const W_COST = 30;
-const HP_MANA_UP_MAX = 10;
-const SPELL_UP_MAX = 5;
+const STAT_UP_MAX = 10;
+const SPELL_UNLOCK_MAX = 1;
 const C_DASH_MS     = 220;
 
+const STAT_HP_PCT = 0.10;
+const STAT_MP_PCT = 0.10;
+const STAT_DMG_PCT = 0.10;
+const STAT_SPEED_PCT = 0.02;
+const STAT_CDR_PCT = 0.03;
+
 // camera pan
-const CAM_PAN_EDGE = 0.82;
-const CAM_PAN_SPEED = 24.0;
+const CAM_PAN_EDGE = 0.72;
+const CAM_PAN_SPEED = 30.0;
 
 // V pool
 const V_COOLDOWN_MS = 13000;
@@ -92,8 +98,25 @@ const Z_LINGER_DAMAGE_FACTOR = 0.125;
 const Z_CAST_RANGE = 13.0;
 const Z_BASE_RADIUS = 1.55;
 const Z_RADIUS_STEP = 0.22;
-const Z_BASE_DAMAGE = 42;
-const Z_DAMAGE_STEP = 15;
+const Z_BASE_DAMAGE = 36;
+const Z_DAMAGE_STEP = 5;
+
+const S_COOLDOWN_MS = 12000;
+const S_COST = 40;
+
+const F_COOLDOWN_MS = 14000;
+const F_COST = 45;
+const F_ORBIT_DURATION_MS = 6000;
+const F_ORBIT_RADIUS = 5.5;
+const F_ORBIT_PERIOD_MS = 2500;
+const G_COOLDOWN_MS = 9800;
+const G_COST = 40;
+const G_SPEED = 8.5;
+const G_RANGE = 19.0;
+const G_BASE_RADIUS = 0.24;
+const G_MAX_RADIUS = 1.35;
+const G_DAMAGE = 18;
+const HOME_OFFICE_CLICK_RANGE = 4.3;
 
 const PLAYER_MODEL_COLORS = [0x58c7ff, 0xff7b7b, 0x7be39a, 0xffd26b];
 
@@ -106,6 +129,9 @@ const SPELL_DEFS = {
   v: { id: 'v', name: 'Pole' },
   x: { id: 'x', name: 'Omraceni' },
   z: { id: 'z', name: 'Dopad' },
+  s: { id: 's', name: 'Stit' },
+  f: { id: 'f', name: 'Orbit' },
+  g: { id: 'g', name: 'Vlna' },
 };
 
 // pickups
@@ -113,8 +139,10 @@ const PICKUP_RADIUS = 0.6;
 const DOG_MAX_HP = 120;
 const NAMESTEK_MAX_HP = 320;
 const REDITEL_MAX_HP = 720;
+const CURDA_MAX_HP = 240;
 const REDITEL_BEAM_WARN_MS = 700;
 const REDITEL_BEAM_WARN_RANGE = 44.0;
+const BUFF_DURATION_MS = 30000;
 
 const INTERP_DELAY_MS = 120; // remote interpolation
 const SEND_HZ = 20;
@@ -125,39 +153,52 @@ const chargeAnim = { active: false, startAt: 0, endAt: 0, fromX: 0, fromZ: 0, to
 function upgradeCost(kind, lvl) {
   void kind;
   void lvl;
-  return 2;
+  return 1;
 }
 
 function myAbilityStats() {
+  const cdr = Math.max(0, Math.min(0.8, (myUp.cdr || 0) * STAT_CDR_PCT));
   return {
-    qDmg: Q_BASE_DAMAGE + Math.max(0, (myUp.q || 1) - 1) * Q_DAMAGE_STEP,
-    wDuration: W_DURATION_MS + myUp.w * 1200,
-    eRange: E_RANGE + myUp.e * 1.1,
-    rRadius: R_RADIUS + myUp.r * 0.32,
-    rDmg: R_DAMAGE + myUp.r * R_DAMAGE_STEP,
+    qDmg: Q_BASE_DAMAGE,
+    wDuration: W_DURATION_MS,
+    eRange: E_RANGE,
+    rRadius: R_RADIUS,
+    rDmg: R_DAMAGE,
+    moveSpeedMult: 1 + (myUp.speed || 0) * STAT_SPEED_PCT,
+    cdrMult: 1 - cdr,
   };
+}
+
+function cooldownMs(baseMs, statsNow = myAbilityStats()) {
+  return Math.max(250, Math.round(baseMs * statsNow.cdrMult));
 }
 
 function refreshSpellbookUi() {
   if (!spellbookPanel) return;
-  upHpEl.textContent = `${myUp.hp}/${HP_MANA_UP_MAX}`;
-  upManaEl.textContent = `${myUp.mana}/${HP_MANA_UP_MAX}`;
-  upQEl.textContent = `${myUp.q}/${SPELL_UP_MAX}`;
-  upWEl.textContent = `${myUp.w}/${SPELL_UP_MAX}`;
-  upEEl.textContent = `${myUp.e}/${SPELL_UP_MAX}`;
-  upREl.textContent = `${myUp.r}/${SPELL_UP_MAX}`;
-  upCEl.textContent = `${myUp.c}/${SPELL_UP_MAX}`;
-  upVEl.textContent = `${myUp.v}/${SPELL_UP_MAX}`;
-  upXEl.textContent = `${myUp.x}/${SPELL_UP_MAX}`;
-  upZEl.textContent = `${myUp.z}/${SPELL_UP_MAX}`;
-  const lvlByKind = { hp: myUp.hp, mana: myUp.mana, q: myUp.q, w: myUp.w, e: myUp.e, r: myUp.r, c: myUp.c, v: myUp.v, x: myUp.x, z: myUp.z };
-  const capByKind = { hp: HP_MANA_UP_MAX, mana: HP_MANA_UP_MAX, q: SPELL_UP_MAX, w: SPELL_UP_MAX, e: SPELL_UP_MAX, r: SPELL_UP_MAX, c: SPELL_UP_MAX, v: SPELL_UP_MAX, x: SPELL_UP_MAX, z: SPELL_UP_MAX };
+  upHpEl.textContent = `${myUp.hp}/${STAT_UP_MAX}`;
+  upManaEl.textContent = `${myUp.mana}/${STAT_UP_MAX}`;
+  upDmgEl.textContent = `${myUp.dmg}/${STAT_UP_MAX}`;
+  upSpeedEl.textContent = `${myUp.speed}/${STAT_UP_MAX}`;
+  upCdrEl.textContent = `${myUp.cdr}/${STAT_UP_MAX}`;
+  upQEl.textContent = `${myUp.q}/${SPELL_UNLOCK_MAX}`;
+  upWEl.textContent = `${myUp.w}/${SPELL_UNLOCK_MAX}`;
+  upEEl.textContent = `${myUp.e}/${SPELL_UNLOCK_MAX}`;
+  upREl.textContent = `${myUp.r}/${SPELL_UNLOCK_MAX}`;
+  upCEl.textContent = `${myUp.c}/${SPELL_UNLOCK_MAX}`;
+  upVEl.textContent = `${myUp.v}/${SPELL_UNLOCK_MAX}`;
+  upXEl.textContent = `${myUp.x}/${SPELL_UNLOCK_MAX}`;
+  upZEl.textContent = `${myUp.z}/${SPELL_UNLOCK_MAX}`;
+  upSEl.textContent = `${myUp.s}/${SPELL_UNLOCK_MAX}`;
+  upFEl.textContent = `${myUp.f}/${SPELL_UNLOCK_MAX}`;
+  upGEl.textContent = `${myUp.g}/${SPELL_UNLOCK_MAX}`;
+  const lvlByKind = { hp: myUp.hp, mana: myUp.mana, dmg: myUp.dmg, speed: myUp.speed, cdr: myUp.cdr, q: myUp.q, w: myUp.w, e: myUp.e, r: myUp.r, c: myUp.c, v: myUp.v, x: myUp.x, z: myUp.z, s: myUp.s, f: myUp.f, g: myUp.g };
+  const capByKind = { hp: STAT_UP_MAX, mana: STAT_UP_MAX, dmg: STAT_UP_MAX, speed: STAT_UP_MAX, cdr: STAT_UP_MAX, q: SPELL_UNLOCK_MAX, w: SPELL_UNLOCK_MAX, e: SPELL_UNLOCK_MAX, r: SPELL_UNLOCK_MAX, c: SPELL_UNLOCK_MAX, v: SPELL_UNLOCK_MAX, x: SPELL_UNLOCK_MAX, z: SPELL_UNLOCK_MAX, s: SPELL_UNLOCK_MAX, f: SPELL_UNLOCK_MAX, g: SPELL_UNLOCK_MAX };
   for (const inline of spellbookUpgradeInline) {
     const kind = inline.dataset.upgrade;
     const lvl = lvlByKind[kind] || 0;
     const cost = upgradeCost(kind, lvl);
-    const maxLvl = capByKind[kind] || SPELL_UP_MAX;
-    inline.title = lvl >= maxLvl ? 'MAX' : `Cena: ${cost} Prémie`;
+    const maxLvl = capByKind[kind] || SPELL_UNLOCK_MAX;
+    inline.title = lvl >= maxLvl ? 'MAX' : 'Vylepšit';
     inline.classList.toggle('disabled', lvl >= maxLvl || myGold < cost);
   }
 
@@ -166,7 +207,7 @@ function refreshSpellbookUi() {
     if (!kind) continue;
     const lvl = lvlByKind[kind] || 0;
     card.classList.toggle('locked', lvl <= 0);
-    card.title = '';
+    card.title = lvl > 0 ? 'Odemčeno' : 'Odemknout';
   }
 
   renderEquippedSlots();
@@ -174,25 +215,31 @@ function refreshSpellbookUi() {
 }
 
 function poolRadiusForLevel(level) {
-  return V_BASE_RADIUS + Math.max(0, level) * V_RADIUS_STEP;
+  void level;
+  return V_BASE_RADIUS;
 }
 
 function zRadiusForLevel(level) {
-  return Z_BASE_RADIUS + Math.max(0, level) * Z_RADIUS_STEP;
+  void level;
+  return Z_BASE_RADIUS;
 }
 
 function zDamageForLevel(level) {
-  return Z_BASE_DAMAGE + Math.max(0, level) * Z_DAMAGE_STEP;
+  void level;
+  return Z_BASE_DAMAGE;
 }
 
 function spellRadiusForLevel(kind, level) {
+  void level;
   if (kind === 'q') return Q_RANGE;
-  if (kind === 'e') return E_RANGE + Math.max(0, level) * 1.1;
+  if (kind === 'e') return E_RANGE;
   if (kind === 'r') return R_RANGE;
   if (kind === 'c') return C_DASH_DIST;
-  if (kind === 'v') return poolRadiusForLevel(level);
+  if (kind === 'v') return V_BASE_RADIUS;
   if (kind === 'x') return X_RANGE;
   if (kind === 'z') return Z_CAST_RANGE;
+  if (kind === 'f') return F_ORBIT_RADIUS;
+  if (kind === 'g') return G_RANGE;
   return null;
 }
 
@@ -205,9 +252,9 @@ function tryCastPool() {
   if (now < vReadyAt) return;
   if (myMana < V_COST) return;
 
-  vReadyAt = now + V_COOLDOWN_MS;
-  myMana = Math.max(0, myMana - V_COST);
-  spawnPoolEffect(myId, poolRadiusForLevel(myUp.v || 0), V_DURATION_MS);
+  const stats = myAbilityStats();
+  vReadyAt = now + cooldownMs(V_COOLDOWN_MS, stats);
+  spawnPoolEffect(myId, V_BASE_RADIUS, V_DURATION_MS);
   send({ type: 'cast', data: { kind: 'v' } });
 }
 
@@ -221,6 +268,7 @@ const buffStatusTextEl = document.getElementById('buff-status-text');
 
 const hpText = document.getElementById('hp-text');
 const hpFill = document.getElementById('hp-fill');
+const hpShieldFill = document.getElementById('hp-shield-fill');
 const mpText = document.getElementById('mp-text');
 const mpFill = document.getElementById('mp-fill');
 const goldText = document.getElementById('gold-text');
@@ -233,14 +281,23 @@ const slotE     = document.getElementById('slot-e');
 const slotEMask = document.getElementById('slot-e-mask');
 const slotR     = document.getElementById('slot-r');
 const slotRMask = document.getElementById('slot-r-mask');
+const slotF     = document.getElementById('slot-f');
+const slotFMask = document.getElementById('slot-f-mask');
 const spellbookPanel = document.getElementById('spellbook-panel');
 const spellbookToggle = document.getElementById('spellbook-toggle');
 const spellbookClose = document.getElementById('spellbook-close');
 const respawnIndicator = document.getElementById('respawn-indicator');
+const homeOfficeScoreEl = document.getElementById('home-office-score');
+const homeOfficeLeaderboardEl = document.getElementById('home-office-leaderboard');
+const homeOfficeGoalEl = document.getElementById('home-office-goal');
+const homeOfficeChannelEl = document.getElementById('home-office-channel');
 const spellbookUpgradeInline = Array.from(document.querySelectorAll('#spellbook-panel .sb-upgrade'));
 const spellCards = Array.from(document.querySelectorAll('#spellbook-panel .sb-spell'));
 const upHpEl = document.getElementById('u-hp');
 const upManaEl = document.getElementById('u-mana');
+const upDmgEl = document.getElementById('u-dmg');
+const upSpeedEl = document.getElementById('u-speed');
+const upCdrEl = document.getElementById('u-cdr');
 const upQEl = document.getElementById('u-q');
 const upWEl = document.getElementById('u-w');
 const upEEl = document.getElementById('u-e');
@@ -249,25 +306,37 @@ const upCEl = document.getElementById('u-c');
 const upVEl = document.getElementById('u-v');
 const upXEl = document.getElementById('u-x');
 const upZEl = document.getElementById('u-z');
+const upSEl = document.getElementById('u-s');
+const upFEl = document.getElementById('u-f');
+const upGEl = document.getElementById('u-g');
 const rCastWrap = document.getElementById('r-cast-wrap');
 const rCastFill = document.getElementById('r-cast-fill');
 
-const slotEls = { q: slotQ, w: slotW, e: slotE, r: slotR };
-const slotMaskEls = { q: slotQMask, w: slotWMask, e: slotEMask, r: slotRMask };
+function layoutSpellbookGrid() {
+  if (!spellbookPanel) return;
+  const cols = Math.max(1, Math.ceil(spellCards.length / 2));
+  spellbookPanel.style.setProperty('--sb-spell-cols', String(cols));
+}
+
+layoutSpellbookGrid();
+
+const slotEls = { q: slotQ, w: slotW, e: slotE, r: slotR, f: slotF };
+const slotMaskEls = { q: slotQMask, w: slotWMask, e: slotEMask, r: slotRMask, f: slotFMask };
 const slotLabelEls = {
   q: slotQ?.querySelector('.label'),
   w: slotW?.querySelector('.label'),
   e: slotE?.querySelector('.label'),
   r: slotR?.querySelector('.label'),
+  f: slotF?.querySelector('.label'),
 };
 
-const equippedBySlot = { q: 'q', w: null, e: null, r: null };
+const equippedBySlot = { q: 'q', w: null, e: null, r: null, f: null };
 
 const BUFF_DEFS = {
   speed: { key: 'speed', label: 'Rychlost', desc: 'Rychlost pohybu +20%', color: '#4fc3ff' },
   hp: { key: 'hp', label: 'Životy', desc: 'Max. životy +20%', color: '#ff6e8a' },
   mana: { key: 'mana', label: 'Mana', desc: 'Max. mana +20%', color: '#6bb7ff' },
-  dmg: { key: 'dmg', label: 'Poškození', desc: 'Poškození +20%', color: '#ff9b5c' },
+  dmg: { key: 'dmg', label: 'Poškození', desc: 'Poškození +10%', color: '#ff9b5c' },
 };
 
 function normalizeBuffKind(kind) {
@@ -438,6 +507,34 @@ function makeBody(color) {
   ring.position.y = 0.03;
   g.add(ring);
 
+  const shieldBubble = new THREE.Mesh(
+    new THREE.SphereGeometry(1.08, 24, 16),
+    new THREE.MeshBasicMaterial({ color: 0x8bd8ff, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide })
+  );
+  shieldBubble.position.y = 0.95;
+  shieldBubble.visible = false;
+  g.add(shieldBubble);
+  g.userData.shieldBubble = shieldBubble;
+
+  const invulnRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.95, 0.07, 10, 32),
+    new THREE.MeshBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0.85, depthWrite: false })
+  );
+  invulnRing.rotation.x = -Math.PI / 2;
+  invulnRing.position.y = 0.18;
+  invulnRing.visible = false;
+  g.add(invulnRing);
+  g.userData.invulnRing = invulnRing;
+
+  const invulnAura = new THREE.Mesh(
+    new THREE.SphereGeometry(1.02, 20, 14),
+    new THREE.MeshBasicMaterial({ color: 0xffe9a8, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide })
+  );
+  invulnAura.position.y = 0.95;
+  invulnAura.visible = false;
+  g.add(invulnAura);
+  g.userData.invulnAura = invulnAura;
+
   // billboard nameplate (CanvasTexture sprite)
   const sprite = makeNameSprite('');
   sprite.position.y = 2.2;
@@ -477,7 +574,7 @@ function makeTalkSprite(text) {
   const c = document.createElement('canvas');
   c.width = 420; c.height = 76;
   const ctx = c.getContext('2d');
-  drawTalkSprite(ctx, text || '');
+  drawTalkSprite(ctx, text || '', 28);
   const tex = new THREE.CanvasTexture(c);
   tex.minFilter = THREE.LinearFilter;
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
@@ -508,7 +605,7 @@ function makeStunSprite() {
   sp.userData.tex = tex;
   return sp;
 }
-function drawTalkSprite(ctx, text) {
+function drawTalkSprite(ctx, text, fontPx = 28) {
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;
   ctx.clearRect(0, 0, w, h);
@@ -516,7 +613,7 @@ function drawTalkSprite(ctx, text) {
   ctx.fillStyle = 'rgba(0,0,0,0.65)';
   roundRect(ctx, 6, 8, w - 12, h - 20, 10);
   ctx.fill();
-  ctx.font = 'bold 28px ui-monospace, Consolas, monospace';
+  ctx.font = `bold ${fontPx}px ui-monospace, Consolas, monospace`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#e8f7ff';
@@ -535,16 +632,19 @@ function setTalkSprite(sp, text) {
   const t = text || '';
   const c = sp.userData.canvas;
   const ctx = sp.userData.ctx;
-  ctx.font = 'bold 28px ui-monospace, Consolas, monospace';
+  const fontPx = 28;
+  const maxW = 1200;
+  const minW = 220;
+  ctx.font = `bold ${fontPx}px ui-monospace, Consolas, monospace`;
   const measured = t ? Math.ceil(ctx.measureText(t).width) : 0;
-  const w = Math.max(140, Math.min(420, measured + 44));
+  const w = Math.max(minW, Math.min(maxW, measured + 44));
   const h = 76;
   if (c.width !== w || c.height !== h) {
     c.width = w;
     c.height = h;
     sp.scale.set((w / 420) * 3.8, 0.72, 1);
   }
-  drawTalkSprite(ctx, t);
+  drawTalkSprite(ctx, t, fontPx);
   sp.userData.tex.needsUpdate = true;
 }
 function makeHpSprite() {
@@ -562,7 +662,7 @@ function makeHpSprite() {
   sp.userData.tex = tex;
   return sp;
 }
-function drawHpSprite(ctx, ratio) {
+function drawHpSprite(ctx, ratio, shieldRatio = 0) {
   const w = 128, h = 24;
   const innerX = 4, innerY = 6, innerW = 120, innerH = 12;
   ctx.clearRect(0, 0, w, h);
@@ -570,14 +670,21 @@ function drawHpSprite(ctx, ratio) {
   ctx.fillRect(0, 0, w, h);
   ctx.fillStyle = '#3b1f30';
   ctx.fillRect(innerX, innerY, innerW, innerH);
+  const hpW = Math.max(0, Math.min(innerW, innerW * ratio));
+  const shieldW = Math.max(0, Math.min(innerW - hpW, innerW * shieldRatio));
+  if (shieldW > 0) {
+    ctx.fillStyle = '#ffc8ef';
+    ctx.fillRect(innerX + hpW, innerY, shieldW, innerH);
+  }
   ctx.fillStyle = '#ff5d7a';
-  ctx.fillRect(innerX, innerY, Math.max(0, Math.min(innerW, innerW * ratio)), innerH);
+  ctx.fillRect(innerX, innerY, hpW, innerH);
   ctx.strokeStyle = 'rgba(255,255,255,0.35)';
   ctx.strokeRect(innerX + 0.5, innerY + 0.5, innerW - 1, innerH - 1);
 }
-function setHpSprite(sp, hp, maxHp) {
+function setHpSprite(sp, hp, maxHp, shield = 0) {
   const ratio = maxHp > 0 ? Math.max(0, Math.min(1, hp / maxHp)) : 0;
-  drawHpSprite(sp.userData.ctx, ratio);
+  const shieldRatio = maxHp > 0 ? Math.max(0, Math.min(1 - ratio, shield / maxHp)) : 0;
+  drawHpSprite(sp.userData.ctx, ratio, shieldRatio);
   sp.userData.tex.needsUpdate = true;
 }
 function drawNameSprite(ctx, text, color) {
@@ -600,6 +707,7 @@ function makeNPCMesh(n) {
   const isReditel = n.kind === 'reditel';
   const isDog = n.kind === 'pes';
   const isSofie = n.kind === 'sofie';
+  const isCurda = n.kind === 'curda';
   if (isDog) {
     const bodyMat = new THREE.MeshStandardMaterial({ color: 0x8c6a45, roughness: 0.7, metalness: 0.02, emissive: 0x3d2a18, emissiveIntensity: 0.2 });
     const headMat = new THREE.MeshStandardMaterial({ color: 0xa67b4f, roughness: 0.65, metalness: 0.02 });
@@ -670,6 +778,21 @@ function makeNPCMesh(n) {
     );
     face.position.set(0, 1.58, 0.48);
     g.add(face);
+  } else if (isCurda) {
+    const coatMat = new THREE.MeshStandardMaterial({ color: 0xb4cc64, roughness: 0.56, metalness: 0.05, emissive: 0x4f5f28, emissiveIntensity: 0.2 });
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.45, 1.08, 16), coatMat);
+    torso.position.y = 0.95;
+    g.add(torso);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.23, 14, 11), new THREE.MeshStandardMaterial({ color: 0xf0dccd, roughness: 0.66 }));
+    head.position.set(0, 1.58, 0.2);
+    g.add(head);
+    const glasses = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.08, 0.04), new THREE.MeshStandardMaterial({ color: 0x1d1f29, roughness: 0.4, metalness: 0.2 }));
+    glasses.position.set(0, 1.59, 0.45);
+    g.add(glasses);
+    const phone = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.24, 0.03), new THREE.MeshStandardMaterial({ color: 0x2b2f3f, emissive: 0x141823, emissiveIntensity: 0.35 }));
+    phone.position.set(0.26, 1.0, 0.35);
+    phone.rotation.y = -0.6;
+    g.add(phone);
   } else {
     const color = 0x86c2ff;
     const body = new THREE.Mesh(
@@ -705,15 +828,20 @@ function makeNPCMesh(n) {
     hpSp.position.y = 2.15;
     g.add(hpSp);
     g.userData.hpSprite = hpSp;
+  } else if (isCurda) {
+    const hpSp = makeHpSprite();
+    hpSp.position.y = 2.15;
+    g.add(hpSp);
+    g.userData.hpSprite = hpSp;
   }
 
   const talkSp = makeTalkSprite('');
-  talkSp.position.y = isDog ? 2.7 : 3.75;
+  talkSp.position.y = isDog ? 2.7 : (isCurda ? 3.5 : 3.75);
   talkSp.visible = false;
   g.add(talkSp);
 
   const stunSp = makeStunSprite();
-  stunSp.position.y = isDog ? 2.25 : (isReditel ? 2.85 : 3.1);
+  stunSp.position.y = isDog ? 2.25 : (isReditel ? 2.85 : (isCurda ? 3.0 : 3.1));
   stunSp.visible = false;
   g.add(stunSp);
 
@@ -732,7 +860,7 @@ function updateNPCsFromSnapshot(snap) {
     if (!obj) {
       const mesh = makeNPCMesh(n);
       scene.add(mesh);
-      obj = { id: n.id, mesh, kind: n.kind, name: n.name, hp: n.hp || 0, maxHp: n.maxHp || 0, alive: n.alive !== false, say: '', sayUntil: 0, stunUntil: 0 };
+      obj = { id: n.id, mesh, kind: n.kind, name: n.name, hp: n.hp || 0, maxHp: n.maxHp || 0, alive: n.alive !== false, say: '', sayUntil: 0, lastSay: '', stunUntil: 0 };
       npcs.set(n.id, obj);
     }
     obj.id = n.id;
@@ -746,8 +874,10 @@ function updateNPCsFromSnapshot(snap) {
     obj.mesh.scale.setScalar(n.scale || 1);
     obj.mesh.visible = obj.alive;
     setNameSprite(obj.mesh.userData.nameSprite, n.name || n.kind, '#e6f2ff');
-    if ((obj.kind === 'pes' || obj.kind === 'reditel' || obj.kind === 'namestek') && obj.mesh.userData.hpSprite) {
-      const fallbackMax = obj.kind === 'reditel' ? REDITEL_MAX_HP : (obj.kind === 'namestek' ? NAMESTEK_MAX_HP : DOG_MAX_HP);
+    if ((obj.kind === 'pes' || obj.kind === 'reditel' || obj.kind === 'namestek' || obj.kind === 'curda') && obj.mesh.userData.hpSprite) {
+      const fallbackMax = obj.kind === 'reditel'
+        ? REDITEL_MAX_HP
+        : (obj.kind === 'namestek' ? NAMESTEK_MAX_HP : (obj.kind === 'curda' ? CURDA_MAX_HP : DOG_MAX_HP));
       const maxHp = obj.maxHp > 0 ? obj.maxHp : fallbackMax;
       setHpSprite(obj.mesh.userData.hpSprite, obj.hp, maxHp);
       obj.mesh.userData.hpSprite.visible = obj.alive;
@@ -755,7 +885,12 @@ function updateNPCsFromSnapshot(snap) {
     obj.say = n.say || '';
     obj.sayUntil = n.sayUntil || 0;
     obj.stunUntil = n.stunUntil || 0;
-    if (obj.say) setTalkSprite(obj.mesh.userData.talkSprite, obj.say);
+    if (!obj.say) {
+      obj.lastSay = '';
+    } else if (obj.say !== obj.lastSay) {
+      setTalkSprite(obj.mesh.userData.talkSprite, obj.say);
+      obj.lastSay = obj.say;
+    }
     if (obj.mesh.userData.stunSprite) {
       obj.mesh.userData.stunSprite.visible = obj.alive && Date.now() < obj.stunUntil;
     }
@@ -801,8 +936,11 @@ let startHP = 100;
 let startMana = 100;
 let myMana = 100; // optimistic local prediction; corrected by snapshots
 let myGold = 0;
-let myUp = { hp: 0, mana: 0, q: 1, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0 };
+let myUp = { hp: 0, mana: 0, dmg: 0, speed: 0, cdr: 0, q: 1, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0, s: 0, f: 0, g: 0 };
 let myStunUntil = 0;
+let myHomeOffice = 0;
+let homeOfficeGoal = 20;
+let winnerId = 0;
 const myBuffs = new Map();
 
 const players = new Map(); // id -> { mesh, name, hp, alive, snapshots: [{t,x,z,facing}], lastSeen }
@@ -811,6 +949,7 @@ const pickups = new Map(); // id -> { kind, x, z, mesh }
 const npcs = new Map(); // id -> { mesh, kind, name, say, sayUntil }
 const beamWarnings = [];
 const activePools = [];
+const activeOrbits = [];
 const activeGroundBursts = [];
 const projectileTargets = [];
 const projectileDogTargets = [];
@@ -826,10 +965,16 @@ let rReadyAt = 0;
 let cReadyAt = 0;
 let xReadyAt = 0;
 let zReadyAt = 0;
+let sReadyAt = 0;
+let fReadyAt = 0;
+let gReadyAt = 0;
 let aaReadyAt = 0;
 let rCastUntil = 0;
 let qMode = false;
 let rMode = false;
+let homeOfficeChannel = null;
+let hoveredHomeOfficePickupId = 0;
+let channelBeam = null;
 
 // --- collision helpers ---
 function pointInObstacle(x, z, rad) {
@@ -937,6 +1082,7 @@ scene.add(slotRadiusPreview);
 let hoveredSlotKey = null;
 
 const blink = { active: false, start: 0 };
+let ignoreServerSnapUntil = 0;
 const camPos = new THREE.Vector3();
 const camLook = new THREE.Vector3();
 const camDesiredPos = new THREE.Vector3();
@@ -977,8 +1123,10 @@ function onMessage(raw) {
       startMana = m.data.startMana || 100;
       myMana = startMana;
       myGold = 0;
-      myUp = { hp: 0, mana: 0, q: 1, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0 };
+      myUp = { hp: 0, mana: 0, dmg: 0, speed: 0, cdr: 0, q: 1, w: 0, e: 0, r: 0, c: 0, v: 0, x: 0, z: 0, s: 0, f: 0 };
       myStunUntil = 0;
+      myHomeOffice = 0;
+      winnerId = 0;
       refreshSpellbookUi();
       break;
 
@@ -989,6 +1137,10 @@ function onMessage(raw) {
     case 'fire':
       if (m.data.kind === 'pool_cast') {
         spawnPoolEffect(m.data.owner, m.data.dx || V_BASE_RADIUS, (m.data.dz || 5) * 1000);
+        break;
+      }
+      if (m.data.kind === 'f_orbit') {
+        spawnOrbitEffect(m.data.owner, m.data.dx || F_ORBIT_RADIUS, (m.data.dz || (F_ORBIT_DURATION_MS / 1000)) * 1000);
         break;
       }
       if (m.data.kind === 'reditel_beam_warn') {
@@ -1017,6 +1169,8 @@ function onMessage(raw) {
 }
 
 function handleSnapshot(snap) {
+  homeOfficeGoal = snap.homeOfficeGoal || 20;
+  winnerId = snap.winnerId || 0;
   const seenIds = new Set();
   for (const p of snap.players) {
     seenIds.add(p.id);
@@ -1045,6 +1199,9 @@ function handleSnapshot(snap) {
     pl.gold = p.gold || 0;
     pl.upHp = p.upHp || 0;
     pl.upMana = p.upMana || 0;
+    pl.upDmg = p.upDmg || 0;
+    pl.upSpeed = p.upSpeed || 0;
+    pl.upCdr = p.upCdr || 0;
     pl.upQ = p.upQ || 0;
     pl.upW = p.upW || 0;
     pl.upE = p.upE || 0;
@@ -1053,13 +1210,31 @@ function handleSnapshot(snap) {
     pl.upV = p.upV || 0;
     pl.upX = p.upX || 0;
     pl.upZ = p.upZ || 0;
+    pl.upS = p.upS || 0;
+    pl.upF = p.upF || 0;
+    pl.upG = p.upG || 0;
+    pl.homeOffice = p.homeOffice || 0;
+    pl.channelPickup = p.channelPickup || 0;
+    pl.channelUntil = p.channelUntil || 0;
     pl.buffs = Array.isArray(p.buffs) ? p.buffs : [];
     pl.stunUntil = p.stunUntil || 0;
     pl.respawnAt = p.respawnAt || 0;
+    pl.shield = p.shield || 0;
+    pl.shieldUntil = p.shieldUntil || 0;
+    pl.invulnUntil = p.invulnUntil || 0;
     pl.alive = p.alive;
     if (pl.mesh.userData.hpSprite) {
-      setHpSprite(pl.mesh.userData.hpSprite, p.hp, pl.maxHp);
+      setHpSprite(pl.mesh.userData.hpSprite, p.hp, pl.maxHp, pl.shield || 0);
       pl.mesh.userData.hpSprite.visible = p.id !== myId && p.alive;
+    }
+    if (pl.mesh.userData.shieldBubble) {
+      const shieldActive = p.alive && (p.shield || 0) > 0 && (!p.shieldUntil || Date.now() < p.shieldUntil);
+      pl.mesh.userData.shieldBubble.visible = shieldActive;
+    }
+    if (pl.mesh.userData.invulnRing) {
+      const invulnActive = p.alive && (p.invulnUntil || 0) > Date.now();
+      pl.mesh.userData.invulnRing.visible = invulnActive;
+      if (pl.mesh.userData.invulnAura) pl.mesh.userData.invulnAura.visible = invulnActive;
     }
     if (pl.mesh.userData.stunSprite) {
       pl.mesh.userData.stunSprite.visible = p.alive && Date.now() < pl.stunUntil;
@@ -1076,7 +1251,8 @@ function handleSnapshot(snap) {
     // first sync, or if we somehow drift far from authority.
     if (p.id === myId) {
       const desync = Math.hypot(myPos.x - p.x, myPos.z - p.z);
-      if (pl._initSync !== true || (!wasAlive && p.alive) || desync > 2.5) {
+      const ignoreSnap = performance.now() < ignoreServerSnapUntil;
+      if (pl._initSync !== true || (!wasAlive && p.alive) || (desync > 2.5 && !ignoreSnap)) {
         myPos.x = p.x; myPos.z = p.z;
         myVel.set(0, 0);
         centerCameraOnMe(true);
@@ -1093,19 +1269,24 @@ function handleSnapshot(snap) {
   if (me) {
     const maxHp = me.maxHp || startHP;
     const maxMana = me.maxMana || startMana;
-    hpText.textContent = `${me.hp}/${maxHp}`;
+    const shield = me.shield || 0;
+    hpText.textContent = shield > 0 ? `${me.hp}+${shield}/${maxHp}` : `${me.hp}/${maxHp}`;
     hpFill.style.width = `${Math.max(0, me.hp) / maxHp * 100}%`;
-    if (typeof me.mana === 'number') {
-      // Server is authoritative; if local prediction undershot, snap up.
-      if (me.mana > myMana) myMana = me.mana;
-      // If server is lower than our prediction, accept it (we predicted too
-      // optimistically or another cast was rejected).
-      if (me.mana < myMana - 2) myMana = me.mana;
+    if (hpShieldFill) {
+      const hpPct = Math.max(0, Math.min(1, me.hp / Math.max(1, maxHp)));
+      const shieldPct = Math.max(0, Math.min(1-hpPct, shield / Math.max(1, maxHp)));
+      hpShieldFill.style.left = `${hpPct * 100}%`;
+      hpShieldFill.style.width = `${shieldPct * 100}%`;
+      hpShieldFill.style.opacity = shieldPct > 0 ? '1' : '0';
     }
+    if (typeof me.mana === 'number') myMana = me.mana;
     myGold = me.gold || 0;
     myUp = {
       hp: me.upHp || 0,
       mana: me.upMana || 0,
+      dmg: me.upDmg || 0,
+      speed: me.upSpeed || 0,
+      cdr: me.upCdr || 0,
       q: me.upQ || 0,
       w: me.upW || 0,
       e: me.upE || 0,
@@ -1114,7 +1295,24 @@ function handleSnapshot(snap) {
       v: me.upV || 0,
       x: me.upX || 0,
       z: me.upZ || 0,
+      s: me.upS || 0,
+      f: me.upF || 0,
+      g: me.upG || 0,
     };
+    myHomeOffice = me.homeOffice || 0;
+    if (homeOfficeGoalEl) {
+      const winnerText = winnerId ? (winnerId === myId ? ' (Vyhral jsi)' : ' (Konec)') : '';
+      homeOfficeGoalEl.textContent = `/ ${homeOfficeGoal}${winnerText}`;
+    }
+    if (homeOfficeScoreEl) {
+      const winnerText = winnerId ? (winnerId === myId ? ' (Vyhral jsi)' : ' (Konec)') : '';
+      homeOfficeScoreEl.textContent = `${myHomeOffice} / ${homeOfficeGoal}${winnerText}`;
+    }
+    renderHomeOfficeLeaderboard(snap.players);
+    if (homeOfficeChannel && (!me.channelPickup || me.channelPickup !== homeOfficeChannel.pickupId)) {
+      homeOfficeChannel = null;
+      if (homeOfficeChannelEl) homeOfficeChannelEl.hidden = true;
+    }
     setMyBuffs(me.buffs || []);
     myStunUntil = me.stunUntil || 0;
     mpText.textContent = `${Math.round(myMana)}/${maxMana}`;
@@ -1233,7 +1431,7 @@ function updateActiveBuffIcons(nowMs) {
     const def = BUFF_DEFS[e.kind];
     if (!def) continue;
     const remainMS = Math.max(0, e.until - nowMs);
-    const ratio = Math.max(0, Math.min(1, remainMS / 60000));
+    const ratio = Math.max(0, Math.min(1, remainMS / BUFF_DURATION_MS));
     const secs = Math.ceil(remainMS / 1000);
 
     const row = document.createElement('div');
@@ -1314,22 +1512,38 @@ function castEquipped(slotKey) {
   }
   if (spellKind === 'z') {
     tryCastZ();
+    return;
+  }
+  if (spellKind === 's') {
+    tryCastShield();
+    return;
+  }
+  if (spellKind === 'f') {
+    tryCastF();
+    return;
+  }
+  if (spellKind === 'g') {
+    tryFireG();
   }
 }
 
 function spellCooldownRatio(kind, now, statsNow) {
-  if (kind === 'q') return Math.max(0, Math.min(1, Math.max(0, qReadyAt - now) / Q_COOLDOWN_MS));
+  if (kind === 'q') return Math.max(0, Math.min(1, Math.max(0, qReadyAt - now) / cooldownMs(Q_COOLDOWN_MS, statsNow)));
   if (kind === 'w') return Math.max(0, Math.min(1, Math.max(0, wActiveUntil - now) / Math.max(1, statsNow.wDuration)));
-  if (kind === 'e') return Math.max(0, Math.min(1, Math.max(0, eReadyAt - now) / E_COOLDOWN_MS));
-  if (kind === 'r') return Math.max(0, Math.min(1, Math.max(0, rReadyAt - now) / R_COOLDOWN_MS));
-  if (kind === 'c') return Math.max(0, Math.min(1, Math.max(0, cReadyAt - now) / C_COOLDOWN_MS));
-  if (kind === 'v') return Math.max(0, Math.min(1, Math.max(0, vReadyAt - now) / V_COOLDOWN_MS));
-  if (kind === 'x') return Math.max(0, Math.min(1, Math.max(0, xReadyAt - now) / X_COOLDOWN_MS));
-  if (kind === 'z') return Math.max(0, Math.min(1, Math.max(0, zReadyAt - now) / Z_COOLDOWN_MS));
+  if (kind === 'e') return Math.max(0, Math.min(1, Math.max(0, eReadyAt - now) / cooldownMs(E_COOLDOWN_MS, statsNow)));
+  if (kind === 'r') return Math.max(0, Math.min(1, Math.max(0, rReadyAt - now) / cooldownMs(R_COOLDOWN_MS, statsNow)));
+  if (kind === 'c') return Math.max(0, Math.min(1, Math.max(0, cReadyAt - now) / cooldownMs(C_COOLDOWN_MS, statsNow)));
+  if (kind === 'v') return Math.max(0, Math.min(1, Math.max(0, vReadyAt - now) / cooldownMs(V_COOLDOWN_MS, statsNow)));
+  if (kind === 'x') return Math.max(0, Math.min(1, Math.max(0, xReadyAt - now) / cooldownMs(X_COOLDOWN_MS, statsNow)));
+  if (kind === 'z') return Math.max(0, Math.min(1, Math.max(0, zReadyAt - now) / cooldownMs(Z_COOLDOWN_MS, statsNow)));
+  if (kind === 's') return Math.max(0, Math.min(1, Math.max(0, sReadyAt - now) / cooldownMs(S_COOLDOWN_MS, statsNow)));
+  if (kind === 'f') return Math.max(0, Math.min(1, Math.max(0, fReadyAt - now) / cooldownMs(F_COOLDOWN_MS, statsNow)));
+  if (kind === 'g') return Math.max(0, Math.min(1, Math.max(0, gReadyAt - now) / cooldownMs(G_COOLDOWN_MS, statsNow)));
   return 0;
 }
 
-function canCastSpell(kind, alive, now) {
+function canCastSpell(kind, alive, now, statsNow = myAbilityStats()) {
+  void statsNow;
   if (!alive || !kind) return false;
   if (Date.now() < myStunUntil) return false;
   if (kind === 'q') return myMana >= Q_COST && now >= qReadyAt && now >= qBurstUntil;
@@ -1340,6 +1554,9 @@ function canCastSpell(kind, alive, now) {
   if (kind === 'v') return myUp.v > 0 && myMana >= V_COST && now >= vReadyAt;
   if (kind === 'x') return myUp.x > 0 && myMana >= X_COST && now >= xReadyAt;
   if (kind === 'z') return myUp.z > 0 && myMana >= Z_COST && now >= zReadyAt;
+  if (kind === 's') return myUp.s > 0 && myMana >= S_COST && now >= sReadyAt;
+  if (kind === 'f') return myUp.f > 0 && myMana >= F_COST && now >= fReadyAt;
+  if (kind === 'g') return myUp.g > 0 && myMana >= G_COST && now >= gReadyAt;
   return false;
 }
 
@@ -1358,9 +1575,12 @@ window.addEventListener('keydown', e => {
   } else if (e.code === 'KeyR') {
     e.preventDefault();
     castEquipped('r');
+  } else if (e.code === 'KeyF') {
+    e.preventDefault();
+    castEquipped('f');
   } else if (e.code === 'KeyB') {
     e.preventDefault();
-    spellbookPanel.hidden = !spellbookPanel.hidden;
+    toggleSpellbook();
   } else if (e.code === 'Space') {
     e.preventDefault();
     centerCameraOnMe();
@@ -1373,21 +1593,33 @@ slotQ.addEventListener('click', () => castEquipped('q'));
 slotW.addEventListener('click', () => castEquipped('w'));
 slotE.addEventListener('click', () => castEquipped('e'));
 slotR.addEventListener('click', () => castEquipped('r'));
+slotF?.addEventListener('click', () => castEquipped('f'));
 
 spellbookToggle?.addEventListener('click', () => {
-  spellbookPanel.hidden = !spellbookPanel.hidden;
+  toggleSpellbook();
 });
 
 spellbookClose?.addEventListener('click', () => {
-  spellbookPanel.hidden = true;
+  setSpellbookOpen(false);
 });
+
+function setSpellbookOpen(open) {
+  if (!spellbookPanel) return;
+  spellbookPanel.hidden = !open;
+  if (spellbookToggle) spellbookToggle.classList.toggle('open', open);
+}
+
+function toggleSpellbook() {
+  if (!spellbookPanel) return;
+  setSpellbookOpen(spellbookPanel.hidden);
+}
 
 for (const inline of spellbookUpgradeInline) {
   inline.addEventListener('click', () => {
     const kind = inline.dataset.upgrade;
     if (!kind) return;
     const lvl = myUp[kind] || 0;
-    const maxLvl = (kind === 'hp' || kind === 'mana') ? HP_MANA_UP_MAX : SPELL_UP_MAX;
+    const maxLvl = STAT_UP_MAX;
     if (lvl >= maxLvl) return;
     if (myGold < upgradeCost(kind, lvl)) return;
     send({ type: 'upgrade', data: { kind } });
@@ -1398,6 +1630,8 @@ for (const card of spellCards) {
   card.addEventListener('click', () => {
     const kind = card.dataset.spell;
     if (!kind || !(kind in SPELL_DEFS)) return;
+    if (isSpellUnlocked(kind)) return;
+    if (myGold < upgradeCost(kind, 0)) return;
     send({ type: 'upgrade', data: { kind } });
   });
   card.addEventListener('dragstart', e => {
@@ -1442,6 +1676,8 @@ canvas.addEventListener('mousemove', e => {
   mouseNDC.x = ((e.clientX - r.left) / r.width) * 2 - 1;
   mouseNDC.y = -((e.clientY - r.top) / r.height) * 2 + 1;
   hasMouse = true;
+  hoveredHomeOfficePickupId = pickHoverableHomeOffice(e.clientX, e.clientY);
+  canvas.style.cursor = hoveredHomeOfficePickupId ? 'pointer' : 'default';
   if (rightMouseDown) {
     updateMouseWorld();
     setMoveTarget(mouseWorld.x, mouseWorld.z);
@@ -1449,6 +1685,7 @@ canvas.addEventListener('mousemove', e => {
 });
 canvas.addEventListener('mousedown', e => {
   if (e.button === 0) {
+    if (tryStartHomeOfficeChannelByClick(e.clientX, e.clientY)) return;
     if (qMode) {
       tryFireQ();
     } else {
@@ -1465,6 +1702,8 @@ canvas.addEventListener('mouseup', e => {
 });
 window.addEventListener('blur', () => {
   rightMouseDown = false;
+  hoveredHomeOfficePickupId = 0;
+  canvas.style.cursor = 'default';
 });
 canvas.addEventListener('contextmenu', e => {
   e.preventDefault();
@@ -1506,7 +1745,14 @@ function setupSpawn() {
   vReadyAt = 0;
   xReadyAt = 0;
   zReadyAt = 0;
+  sReadyAt = 0;
+  fReadyAt = 0;
+  gReadyAt = 0;
   myStunUntil = 0;
+  homeOfficeChannel = null;
+  hoveredHomeOfficePickupId = 0;
+  canvas.style.cursor = 'default';
+  if (homeOfficeChannelEl) homeOfficeChannelEl.hidden = true;
   chargeAnim.active = false;
   qMode = false;
   rMode = false;
@@ -1561,7 +1807,6 @@ function tryCastW() {
   if (myMana < W_COST) return;
   const stats = myAbilityStats();
   wActiveUntil = now + stats.wDuration;
-  myMana = Math.max(0, myMana - W_COST);
   send({ type: 'cast', data: { kind: 'w' } });
 }
 
@@ -1597,14 +1842,14 @@ function tryTeleport() {
   myPos.z = spot.z;
   hasMoveTarget = false;
 
-  eReadyAt = now + E_COOLDOWN_MS;
-  myMana = Math.max(0, myMana - E_COST);
+  eReadyAt = now + cooldownMs(E_COOLDOWN_MS, stats);
 
   blink.active = true;
   blink.start = now;
 
-  send({ type: 'cast', data: { kind: 'e' } });
+  ignoreServerSnapUntil = now + 350;
   send({ type: 'state', data: { x: myPos.x, z: myPos.z, facing: myFacing } });
+  send({ type: 'cast', data: { kind: 'e', x: myPos.x, z: myPos.z } });
 }
 
 // ---------------- projectiles ----------------
@@ -1616,8 +1861,8 @@ function tryFireQ() {
   if (now < qBurstUntil) return;
   if (now < qReadyAt) return;
   if (myMana < Q_COST) return;
-  qReadyAt = now + Q_COOLDOWN_MS;
-  myMana = Math.max(0, myMana - Q_COST);
+  const stats = myAbilityStats();
+  qReadyAt = now + cooldownMs(Q_COOLDOWN_MS, stats);
   qMode = false;
   slotQ.classList.remove('targeting');
   qBurstUntil = now + Q_BURST_MS;
@@ -1639,9 +1884,9 @@ function tryFireR() {
   rightMouseDown = false;
   myVel.set(0, 0);
 
-  rReadyAt = now + R_COOLDOWN_MS;
+  const stats = myAbilityStats();
+  rReadyAt = now + cooldownMs(R_COOLDOWN_MS, stats);
   rCastUntil = now + R_CAST_MS;
-  myMana = Math.max(0, myMana - R_COST);
   rMode = false;
   slotR.classList.remove('targeting');
 }
@@ -1654,6 +1899,7 @@ function tryCastCharge() {
   const now = performance.now();
   if (now < cReadyAt) return;
   if (myMana < C_COST) return;
+  const stats = myAbilityStats();
 
   const dirX = Math.sin(myFacing);
   const dirZ = Math.cos(myFacing);
@@ -1671,8 +1917,7 @@ function tryCastCharge() {
   rightMouseDown = false;
   myVel.set(0, 0);
 
-  cReadyAt = now + C_COOLDOWN_MS;
-  myMana = Math.max(0, myMana - C_COST);
+  cReadyAt = now + cooldownMs(C_COOLDOWN_MS, stats);
   send({ type: 'cast', data: { kind: 'c' } });
   send({ type: 'state', data: { x: chargeAnim.toX, z: chargeAnim.toZ, facing: myFacing } });
 }
@@ -1685,9 +1930,9 @@ function tryFireX() {
   const now = performance.now();
   if (now < xReadyAt) return;
   if (myMana < X_COST) return;
+  const stats = myAbilityStats();
 
-  xReadyAt = now + X_COOLDOWN_MS;
-  myMana = Math.max(0, myMana - X_COST);
+  xReadyAt = now + cooldownMs(X_COOLDOWN_MS, stats);
   fireProjectile('x');
 }
 
@@ -1699,6 +1944,7 @@ function tryCastZ() {
   const now = performance.now();
   if (now < zReadyAt) return;
   if (myMana < Z_COST) return;
+  const stats = myAbilityStats();
 
   updateMouseWorld();
   let tx = myPos.x + Math.sin(myFacing) * 3.5;
@@ -1719,13 +1965,55 @@ function tryCastZ() {
   tx = Math.max(-serverHalfX + 0.5, Math.min(serverHalfX - 0.5, tx));
   tz = Math.max(-serverHalfZ + 0.5, Math.min(serverHalfZ - 0.5, tz));
 
-  const radius = zRadiusForLevel(myUp.z || 0);
-  const damage = zDamageForLevel(myUp.z || 0);
-  zReadyAt = now + Z_COOLDOWN_MS;
-  myMana = Math.max(0, myMana - Z_COST);
+  const radius = Z_BASE_RADIUS;
+  const damage = Z_BASE_DAMAGE;
+  zReadyAt = now + cooldownMs(Z_COOLDOWN_MS, stats);
 
   spawnGroundBurst(myId, tx, tz, radius, Z_DELAY_MS, damage);
   send({ type: 'fire', data: { pid: myProjectileSeq++, ox: tx, oz: tz, dx: radius, dz: Z_DELAY_MS / 1000, kind: 'z' } });
+}
+
+function tryCastShield() {
+  const me = players.get(myId);
+  if (!me || !me.alive) return;
+  if (Date.now() < myStunUntil) return;
+  if ((myUp.s || 0) <= 0) return;
+  const now = performance.now();
+  if (now < sReadyAt) return;
+  if (myMana < S_COST) return;
+
+  const stats = myAbilityStats();
+  sReadyAt = now + cooldownMs(S_COOLDOWN_MS, stats);
+  send({ type: 'cast', data: { kind: 's' } });
+}
+
+function tryCastF() {
+  const me = players.get(myId);
+  if (!me || !me.alive) return;
+  if (Date.now() < myStunUntil) return;
+  if ((myUp.f || 0) <= 0) return;
+  const now = performance.now();
+  if (now < fReadyAt) return;
+  if (myMana < F_COST) return;
+
+  const stats = myAbilityStats();
+  fReadyAt = now + cooldownMs(F_COOLDOWN_MS, stats);
+  spawnOrbitEffect(myId, F_ORBIT_RADIUS, F_ORBIT_DURATION_MS);
+  send({ type: 'cast', data: { kind: 'f' } });
+}
+
+function tryFireG() {
+  const me = players.get(myId);
+  if (!me || !me.alive) return;
+  if (Date.now() < myStunUntil) return;
+  if ((myUp.g || 0) <= 0) return;
+  const now = performance.now();
+  if (now < gReadyAt) return;
+  if (myMana < G_COST) return;
+
+  const stats = myAbilityStats();
+  gReadyAt = now + cooldownMs(G_COOLDOWN_MS, stats);
+  fireProjectile('g');
 }
 
 function tryAutoAttack() {
@@ -1775,6 +2063,12 @@ function projectileSpec(kind, boost = null) {
       return { radius: AA_RADIUS, startSpeed: AA_SPEED_START, maxSpeed: AA_SPEED_MAX, accel: AA_ACCEL, range: AA_RANGE, dmg: AA_DAMAGE, pierce: false };
     case 'x':
       return { radius: X_RADIUS, startSpeed: X_SPEED_START, maxSpeed: X_SPEED_MAX, accel: X_ACCEL, range: X_RANGE, dmg: X_DAMAGE, pierce: false };
+    case 'g':
+      return { radius: G_BASE_RADIUS, startSpeed: G_SPEED, maxSpeed: G_SPEED, accel: 0, range: G_RANGE, dmg: G_DAMAGE, pierce: true, waveGrow: G_MAX_RADIUS - G_BASE_RADIUS, waveMax: G_MAX_RADIUS };
+    case 'curda_stun':
+      return { radius: 0.60, startSpeed: 22.0, maxSpeed: 22.0, accel: 0, range: 18.0, dmg: 14, pierce: false };
+    case 'curda_salva':
+      return { radius: 0.30, startSpeed: 24.0, maxSpeed: 24.0, accel: 0, range: 16.0, dmg: 8, pierce: false };
     default:
       return { radius: Q_RADIUS, startSpeed: Q_SPEED_START, maxSpeed: Q_SPEED_MAX, accel: Q_ACCEL, range: Q_RANGE, dmg: b.qDmg, pierce: false };
   }
@@ -1786,12 +2080,15 @@ function spawnProjectile(p) {
   let color;
   if (kind === 'reditel') color = 0xffc46b;
   else if (kind === 'reditel_beam') color = 0xff6d8a;
+  else if (kind === 'curda_stun') color = 0x8b7cff;
+  else if (kind === 'curda_salva') color = 0xffb06b;
+  else if (kind === 'g') color = p.owner === myId ? 0x9ce8ff : 0x8bf5d2;
   else if (kind === 'r')      color = p.owner === myId ? 0xff7df6 : 0xff5dc8;
   else if (kind === 'x') color = p.owner === myId ? 0x89ffde : 0x7dcfff;
   else if (kind === 'aa') color = p.owner === myId ? 0xa6f0ff : 0xfff0a0;
   else                    color = p.owner === myId ? 0xffe48a : 0xff9b66;
 
-  const geom = kind === 'x'
+  const geom = (kind === 'x' || kind === 'curda_stun')
     ? new THREE.BoxGeometry(1.2, 0.4, 0.4)
     : new THREE.SphereGeometry(spec.radius, 12, 9);
   const mesh = new THREE.Mesh(
@@ -1799,7 +2096,7 @@ function spawnProjectile(p) {
     new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: (kind === 'r' || kind === 'reditel_beam') ? 1.1 : 0.85 })
   );
   mesh.position.set(p.ox, 1.0, p.oz);
-  if (kind === 'x') {
+  if (kind === 'x' || kind === 'curda_stun') {
     mesh.rotation.y = Math.atan2(p.dx, p.dz);
   }
   scene.add(mesh);
@@ -1817,7 +2114,13 @@ function spawnProjectile(p) {
     speed: spec.startSpeed,
     maxSpeed: spec.maxSpeed,
     accel: spec.accel,
-    radius: spec.radius, range: spec.range, dmg: spec.dmg, pierce: spec.pierce,
+    radius: spec.radius,
+    baseRadius: spec.radius,
+    waveGrow: spec.waveGrow || 0,
+    waveMax: spec.waveMax || spec.radius,
+    range: spec.range,
+    dmg: spec.dmg,
+    pierce: spec.pierce,
     kind,
     dist: 0,
     mesh,
@@ -1888,6 +2191,59 @@ function updatePools(now) {
     }
     const t = (now - p.startAt) * 0.01;
     p.ring.material.opacity = 0.32 + 0.13 * (0.5 + 0.5 * Math.sin(t));
+  }
+}
+
+function spawnOrbitEffect(ownerId, radius, durationMS) {
+  for (let i = activeOrbits.length - 1; i >= 0; i--) {
+    if (activeOrbits[i].ownerId === ownerId) {
+      for (const m of activeOrbits[i].meshes) {
+        scene.remove(m);
+        m.geometry.dispose();
+        m.material.dispose();
+      }
+      activeOrbits.splice(i, 1);
+    }
+  }
+  const meshes = [];
+  for (let i = 0; i < 3; i++) {
+    const orb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.58, 18, 14),
+      new THREE.MeshStandardMaterial({ color: 0xb5f6ff, emissive: 0x96eeff, emissiveIntensity: 1.05 })
+    );
+    scene.add(orb);
+    meshes.push(orb);
+  }
+  activeOrbits.push({ ownerId, radius, startAt: performance.now(), endAt: performance.now() + durationMS, meshes });
+}
+
+function updateOrbits(now) {
+  for (let i = activeOrbits.length - 1; i >= 0; i--) {
+    const o = activeOrbits[i];
+    if (now >= o.endAt) {
+      for (const m of o.meshes) {
+        scene.remove(m);
+        m.geometry.dispose();
+        m.material.dispose();
+      }
+      activeOrbits.splice(i, 1);
+      continue;
+    }
+    let ox = myPos.x;
+    let oz = myPos.z;
+    if (o.ownerId !== myId) {
+      const p = players.get(o.ownerId);
+      if (p) {
+        ox = p.mesh.position.x;
+        oz = p.mesh.position.z;
+      }
+    }
+    const t = ((Date.now() % F_ORBIT_PERIOD_MS) / F_ORBIT_PERIOD_MS) * Math.PI * 2;
+    for (let k = 0; k < o.meshes.length; k++) {
+      const a = t + k * (Math.PI * 2 / o.meshes.length);
+      const m = o.meshes[k];
+      m.position.set(ox + Math.sin(a) * o.radius, 1.0, oz + Math.cos(a) * o.radius);
+    }
   }
 }
 
@@ -2026,8 +2382,8 @@ function refreshProjectileCollisionTargets() {
 
   for (const [nid, n] of npcs) {
     if (!n.alive) continue;
-    if (n.kind === 'pes' || n.kind === 'reditel' || n.kind === 'namestek') {
-      const rad = n.kind === 'reditel' ? 1.05 : (n.kind === 'namestek' ? 0.72 : 0.6);
+    if (n.kind === 'pes' || n.kind === 'reditel' || n.kind === 'namestek' || n.kind === 'curda') {
+      const rad = n.kind === 'reditel' ? 1.05 : (n.kind === 'namestek' ? 0.72 : (n.kind === 'curda' ? 0.72 : 0.6));
       projectileDogTargets.push({ id: Number(nid), x: n.mesh.position.x, z: n.mesh.position.z, rad });
     } else {
       projectileBlockers.push({ id: Number(nid), x: n.mesh.position.x, z: n.mesh.position.z, rad: 0.72 });
@@ -2044,6 +2400,15 @@ function updateProjectiles(dt) {
     pr.x += stepX;
     pr.z += stepZ;
     pr.dist += Math.hypot(stepX, stepZ);
+
+    if (pr.waveGrow > 0) {
+      const ratio = Math.max(0, Math.min(1, pr.dist / Math.max(0.001, pr.range)));
+      const nextRadius = Math.min(pr.waveMax, pr.baseRadius + pr.waveGrow * ratio);
+      pr.radius = nextRadius;
+      const s = nextRadius / Math.max(0.001, pr.baseRadius);
+      pr.mesh.scale.set(s, Math.max(0.7, s*0.75), s);
+    }
+
     pr.mesh.position.x = pr.x;
     pr.mesh.position.z = pr.z;
 
@@ -2141,27 +2506,29 @@ function spawnPickupMesh(pk) {
     buff_hp: 0xff6e8a,
     buff_mana: 0x6bb7ff,
     buff_dmg: 0xff9b5c,
+    home_office: 0xc8f08a,
   };
   const color = colorByKind[pk.kind] || (isHP ? 0xff5d8c : (isGold ? 0xffd45b : 0x56d9ff));
   const baseOpacity = 0.55;
   const g = new THREE.Group();
   const orbMat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.85, transparent: true, opacity: 1.0 });
+  const isHomeOffice = pk.kind === 'home_office';
   const orb = new THREE.Mesh(
-    new THREE.SphereGeometry(0.32, 16, 12),
+    new THREE.SphereGeometry(isHomeOffice ? 0.62 : 0.32, 16, 12),
     orbMat
   );
-  orb.position.y = 0.5;
+  orb.position.y = isHomeOffice ? 0.62 : 0.5;
   g.add(orb);
   const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: baseOpacity, side: THREE.DoubleSide });
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.45, 0.6, 24),
+    new THREE.RingGeometry(isHomeOffice ? 0.7 : 0.45, isHomeOffice ? 0.9 : 0.6, 24),
     ringMat
   );
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 0.04;
   g.add(ring);
-  const light = new THREE.PointLight(color, 0.5, 3);
-  light.position.y = 0.5;
+  const light = new THREE.PointLight(color, isHomeOffice ? 0.85 : 0.5, isHomeOffice ? 4.8 : 3);
+  light.position.y = isHomeOffice ? 0.75 : 0.5;
   g.add(light);
 
   const buffIconByKind = {
@@ -2193,6 +2560,8 @@ function spawnPickupMesh(pk) {
     g.add(sp);
   }
   g.position.set(pk.x, 0, pk.z);
+  orb.userData.pickupId = pk.id;
+  orb.userData.pickupKind = pk.kind;
   scene.add(g);
   pickups.set(pk.id, {
     id: pk.id,
@@ -2206,12 +2575,140 @@ function spawnPickupMesh(pk) {
     orbMat,
     ringMat,
     light,
+    orb,
   });
+}
+
+function pickHoverableHomeOffice(clientX, clientY) {
+  const me = players.get(myId);
+  if (!me || !me.alive || winnerId) return 0;
+
+  const r = canvas.getBoundingClientRect();
+  const ndcX = ((clientX - r.left) / r.width) * 2 - 1;
+  const ndcY = -((clientY - r.top) / r.height) * 2 + 1;
+  raycaster.setFromCamera({ x: ndcX, y: ndcY }, camera);
+
+  const orbs = [];
+  for (const pk of pickups.values()) {
+    if (pk.kind === 'home_office' && pk.orb) orbs.push(pk.orb);
+  }
+  if (!orbs.length) return 0;
+  const hits = raycaster.intersectObjects(orbs, false);
+  if (!hits.length) return 0;
+
+  const hitOrb = hits[0].object;
+  const pickupId = hitOrb.userData.pickupId;
+  const pk = pickups.get(pickupId);
+  if (!pk) return 0;
+  const dx = pk.x - myPos.x;
+  const dz = pk.z - myPos.z;
+  if (dx * dx + dz * dz > HOME_OFFICE_CLICK_RANGE * HOME_OFFICE_CLICK_RANGE) return 0;
+  return pickupId;
+}
+
+function ensureChannelBeam() {
+  if (channelBeam) return channelBeam;
+  const mat = new THREE.MeshBasicMaterial({ color: 0xc8f5ff, transparent: true, opacity: 0.82 });
+  const curve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0, 0, 0),
+  ]);
+  const geom = new THREE.TubeGeometry(curve, 14, 0.12, 10, false);
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.visible = false;
+  scene.add(mesh);
+  channelBeam = { mesh, geom, mat };
+  return channelBeam;
+}
+
+function setChannelBeam(active, fromX, fromZ, toX, toZ, tNow) {
+  const beam = ensureChannelBeam();
+  beam.mesh.visible = active;
+  if (!active) return;
+
+  const wobble = Math.sin(tNow / 95) * 0.12;
+  const points = [
+    new THREE.Vector3(fromX, 1.05, fromZ),
+    new THREE.Vector3((fromX + toX) * 0.5 + wobble, 1.38 + Math.sin(tNow / 140) * 0.08, (fromZ + toZ) * 0.5 - wobble),
+    new THREE.Vector3(toX, 0.95, toZ),
+  ];
+  const curve = new THREE.CatmullRomCurve3(points);
+  const nextGeom = new THREE.TubeGeometry(curve, 14, 0.12, 10, false);
+  beam.mesh.geometry.dispose();
+  beam.mesh.geometry = nextGeom;
+  beam.geom = nextGeom;
+  beam.mat.opacity = 0.56 + 0.34*(0.5+0.5*Math.sin(tNow/120));
+}
+
+function stopHomeOfficeChannel() {
+  if (!homeOfficeChannel) return;
+  send({ type: 'channel', data: { id: homeOfficeChannel.pickupId, start: false } });
+  homeOfficeChannel = null;
+  if (homeOfficeChannelEl) homeOfficeChannelEl.hidden = true;
+  setChannelBeam(false, 0, 0, 0, 0, 0);
+}
+
+function renderHomeOfficeLeaderboard(snapPlayers) {
+  if (!homeOfficeLeaderboardEl || !Array.isArray(snapPlayers)) return;
+  const rows = snapPlayers
+    .map(p => ({ id: p.id, name: p.name || `p${p.id}`, score: p.homeOffice || 0 }))
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  const topScore = rows.length ? rows[0].score : 0;
+  let html = '';
+  for (const r of rows) {
+    const cls = [];
+    if (r.id === myId) cls.push('me');
+    if (r.score > 0 && r.score === topScore) cls.push('lead');
+    const safeName = String(r.name).replace(/[&<>"']/g, c => (
+      c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '"' ? '&quot;' : '&#39;'
+    ));
+    html += `<li class="${cls.join(' ')}"><span class="ho-name">${safeName}</span><span class="ho-count">${r.score}</span></li>`;
+  }
+  homeOfficeLeaderboardEl.innerHTML = html;
+}
+
+function tryStartHomeOfficeChannelByClick(clientX, clientY) {
+  const me = players.get(myId);
+  if (!me || !me.alive) return false;
+  if (winnerId) return false;
+
+  const r = canvas.getBoundingClientRect();
+  const ndcX = ((clientX - r.left) / r.width) * 2 - 1;
+  const ndcY = -((clientY - r.top) / r.height) * 2 + 1;
+  raycaster.setFromCamera({ x: ndcX, y: ndcY }, camera);
+
+  const orbs = [];
+  for (const pk of pickups.values()) {
+    if (pk.kind === 'home_office' && pk.orb) orbs.push(pk.orb);
+  }
+  if (!orbs.length) return false;
+  const hits = raycaster.intersectObjects(orbs, false);
+  if (!hits.length) return false;
+
+  const hitOrb = hits[0].object;
+  const pickupId = hitOrb.userData.pickupId;
+  const pk = pickups.get(pickupId);
+  if (!pk) return false;
+  const dx = pk.x - myPos.x;
+  const dz = pk.z - myPos.z;
+  if (dx * dx + dz * dz > HOME_OFFICE_CLICK_RANGE * HOME_OFFICE_CLICK_RANGE) return false;
+
+  homeOfficeChannel = { pickupId, startedAt: performance.now(), startX: myPos.x, startZ: myPos.z };
+  send({ type: 'channel', data: { id: pickupId, start: true } });
+  if (homeOfficeChannelEl) {
+    homeOfficeChannelEl.hidden = false;
+    homeOfficeChannelEl.textContent = 'Channeling 5s';
+  }
+  return true;
 }
 
 function removePickup(id) {
   const pk = pickups.get(id);
   if (!pk) return;
+  if (homeOfficeChannel && homeOfficeChannel.pickupId === id) {
+    setChannelBeam(false, 0, 0, 0, 0, 0);
+  }
   scene.remove(pk.mesh);
   pk.mesh.traverse(o => {
     if (o.geometry) o.geometry.dispose();
@@ -2239,8 +2736,31 @@ function updatePickups() {
   }
   // collection check
   const me = players.get(myId);
-  if (!me || !me.alive) return;
+  if (!me || !me.alive) {
+    if (homeOfficeChannel) stopHomeOfficeChannel();
+    setChannelBeam(false, 0, 0, 0, 0, 0);
+    return;
+  }
+  if (homeOfficeChannel) {
+    const dxm = myPos.x - homeOfficeChannel.startX;
+    const dzm = myPos.z - homeOfficeChannel.startZ;
+    if (dxm * dxm + dzm * dzm > 0.45 * 0.45 || Date.now() < myStunUntil) {
+      stopHomeOfficeChannel();
+    } else {
+      const remain = Math.max(0, 5000 - (performance.now() - homeOfficeChannel.startedAt));
+      if (homeOfficeChannelEl) {
+        homeOfficeChannelEl.hidden = false;
+        homeOfficeChannelEl.textContent = `Channeling ${Math.ceil(remain / 1000)}s`;
+      }
+      const p = pickups.get(homeOfficeChannel.pickupId);
+      if (p) setChannelBeam(true, myPos.x, myPos.z, p.x, p.z, now);
+      else setChannelBeam(false, 0, 0, 0, 0, 0);
+    }
+  } else {
+    setChannelBeam(false, 0, 0, 0, 0, 0);
+  }
   for (const pk of pickups.values()) {
+    if (pk.kind === 'home_office') continue;
     const dx = pk.x - myPos.x;
     const dz = pk.z - myPos.z;
     if (dx * dx + dz * dz <= (PICKUP_RADIUS + PLAYER_RADIUS) ** 2) {
@@ -2308,8 +2828,9 @@ function loop(t) {
     }
 
     const sprintActive = performance.now() < wActiveUntil;
+    const statsNow = myAbilityStats();
     const speedBuffMult = hasMyBuff('speed') ? 1.1 : 1.0;
-    const moveSpeedNow = MOVE_SPEED * speedBuffMult * (sprintActive ? W_SPEED_MULT : 1);
+    const moveSpeedNow = MOVE_SPEED * statsNow.moveSpeedMult * speedBuffMult * (sprintActive ? W_SPEED_MULT : 1);
     myVel.set(0, 0);
     if (stunned) {
       hasMoveTarget = false;
@@ -2330,8 +2851,6 @@ function loop(t) {
     if (rCastUntil > 0 && myVel.lengthSq() > 0.0004) {
       rCastUntil = 0;
       rReadyAt = performance.now();
-      const maxMana = (me && me.maxMana) ? me.maxMana : startMana;
-      myMana = Math.min(maxMana, myMana + R_COST);
     }
 
     let moved = 0;
@@ -2461,6 +2980,7 @@ function loop(t) {
   updateGroundBursts(performance.now());
   updateBeamWarnings(performance.now());
   updatePools(performance.now());
+  updateOrbits(performance.now());
   updatePickups();
   updateNpcTalkVisibility();
   updateActiveBuffIcons(Date.now());
@@ -2494,7 +3014,7 @@ function loop(t) {
 
   // camera: free mouse-pan with fixed angle, clamped inside lobby.
   let panX = 0, panZ = 0;
-  if (hasMouse) {
+  if (hasMouse && !chargeAnim.active) {
     if (mouseNDC.x > CAM_PAN_EDGE) {
       panX = (mouseNDC.x - CAM_PAN_EDGE) / (1 - CAM_PAN_EDGE);
     } else if (mouseNDC.x < -CAM_PAN_EDGE) {
@@ -2580,11 +3100,9 @@ function loop(t) {
     slotR.classList.remove('targeting');
   }
 
-  // mana display (smoothly tween toward server-known + local prediction)
+  // mana display (server-authoritative)
   if (me && typeof me.mana === 'number') {
     const maxMana = me.maxMana || startMana;
-    // local regen prediction between snapshots (8/s)
-    if (alive && myMana < maxMana) myMana = Math.min(maxMana, myMana + 8 * dt);
     mpText.textContent = `${Math.round(myMana)}/${maxMana}`;
     mpFill.style.width = `${Math.max(0, myMana) / maxMana * 100}%`;
   }

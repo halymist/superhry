@@ -170,12 +170,100 @@ html, body {
   pointer-events: auto;
 }
 
+.hud .buff-stack {
+  position: absolute;
+  left: 50%;
+  bottom: 178px;
+  transform: translateX(-50%);
+  width: 220px;
+  pointer-events: none;
+}
+
+.hud .home-office-objective {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  min-width: 178px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #4e79bb;
+  background: rgba(16, 28, 49, 0.86);
+  box-shadow: 0 0 18px rgba(58, 109, 180, 0.22);
+  pointer-events: none;
+}
+
+.hud .home-office-objective .ho-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9fd7ff;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.hud .home-office-objective .ho-goal {
+  font-size: 10px;
+  letter-spacing: 0;
+  color: #cfe6ff;
+  opacity: 0.75;
+  text-transform: none;
+}
+
+.hud .home-office-objective .ho-leaderboard {
+  list-style: none;
+  margin: 5px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 178px;
+}
+
+.hud .home-office-objective .ho-leaderboard li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #d8ebff;
+  padding: 1px 4px;
+  border-radius: 4px;
+  line-height: 1.25;
+}
+
+.hud .home-office-objective .ho-leaderboard li.me {
+  background: rgba(86, 180, 255, 0.18);
+  color: #f5fbff;
+}
+
+.hud .home-office-objective .ho-leaderboard li.lead {
+  color: #ffe89a;
+}
+
+.hud .home-office-objective .ho-leaderboard .ho-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hud .home-office-objective .ho-leaderboard .ho-count {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud .home-office-objective .ho-channel {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #ffe7a3;
+}
+
 .hud .active-buffs {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  width: 220px;
-  margin: 0 auto 6px;
+  width: 100%;
+  margin: 0;
 }
 
 .hud .active-buffs:empty {
@@ -280,6 +368,18 @@ html, body {
   transition: width 120ms ease;
 }
 
+.hud .hp-shield-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  background: linear-gradient(to right, #ffe8fb, #ffc6ea);
+  opacity: 0;
+  transition: left 120ms ease, width 120ms ease, opacity 120ms ease;
+  pointer-events: none;
+}
+
 .hud .mp-bar {
   position: relative;
   height: 14px;
@@ -366,96 +466,126 @@ html, body {
 
 .hud .spellbook-toggle {
   position: absolute;
-  left: calc(50% + 196px);
+  left: calc(50% + 226px);
   bottom: 16px;
-  height: 78px;
-  width: 96px;
+  width: 26px;
+  height: 168px;
   border: 1px solid #4f73b2;
   border-radius: 8px;
   background: linear-gradient(180deg, rgba(47, 71, 114, 0.92), rgba(21, 32, 54, 0.92));
   color: #d8ebff;
   font: inherit;
-  font-size: 11px;
-  letter-spacing: 0.03em;
   cursor: pointer;
   pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
 
-.hud .gold-floating {
-  position: absolute;
-  left: calc(50% + 196px);
-  bottom: 100px;
-  min-width: 96px;
-  text-align: center;
+.hud .spellbook-toggle:hover {
+  border-color: #89b8ff;
+  background: linear-gradient(180deg, rgba(64, 95, 144, 0.95), rgba(28, 42, 70, 0.95));
+}
+
+.hud .spellbook-toggle .sb-toggle-glyph {
+  font-size: 18px;
+  line-height: 1;
+  color: #c8e0ff;
+  transition: transform 180ms ease;
+  display: inline-block;
+}
+
+.hud .spellbook-toggle.open .sb-toggle-glyph {
+  transform: rotate(180deg);
+}
+
+.hud .home-office-objective .gold-floating {
+  margin-top: 6px;
+  min-width: 0;
+  text-align: left;
   border: 1px solid #4f73b2;
-  border-radius: 8px;
-  background: rgba(19, 30, 52, 0.94);
+  border-radius: 6px;
+  background: rgba(19, 30, 52, 0.9);
   color: #d8ebff;
   font-size: 11px;
-  padding: 5px 6px;
-  pointer-events: none;
+  padding: 4px 6px;
 }
 
 .hud .spellbook-panel {
   position: absolute;
-  left: calc(50% + 298px);
+  left: calc(50% + 258px);
   bottom: 16px;
-  --sb-cell-size: 50px;
+  --sb-cell-size: 74px;
   width: max-content;
-  min-height: 0;
+  max-width: calc(100vw - 12px);
   background: rgba(18, 31, 54, 0.88);
   border: 1px solid #6f8bc1;
   border-radius: 8px;
-  padding: 10px;
+  padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   pointer-events: auto;
   overflow: hidden;
+  transform-origin: left center;
+  transition: transform 180ms ease, opacity 180ms ease;
 }
 
-.hud .spellbook-panel .sb-head {
+.hud .spellbook-panel[hidden] {
+  display: flex !important;
+  pointer-events: none;
+  transform: scaleX(0);
+  opacity: 0;
+}
+
+.hud .spellbook-panel .sb-stats {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.hud .spellbook-panel .sb-stat {
+  width: auto;
+  padding: 4px 5px;
+  border: 1px solid #4a6eae;
+  border-radius: 6px;
+  background: rgba(29, 45, 75, 0.95);
+  color: #e3f2ff;
+  font: inherit;
+  cursor: pointer;
   display: flex;
+  flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 4px;
 }
 
-.hud .spellbook-panel .sb-close {
-  border: 1px solid #5379ba;
-  border-radius: 6px;
-  background: rgba(30, 47, 79, 0.95);
-  color: #dceeff;
-  font: inherit;
-  font-size: 14px;
-  line-height: 1;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  cursor: pointer;
+.hud .spellbook-panel .sb-stat .sb-name {
+  font-size: 11px;
+  color: #e4f1ff;
 }
 
-.hud .spellbook-panel .sb-meta {
-  font-size: 12px;
-  color: #cce6ff;
-  white-space: nowrap;
-  margin-right: auto;
+.hud .spellbook-panel .sb-stat .sb-lvl {
+  font-size: 10px;
+  color: #b7d5ff;
+}
+
+.hud .spellbook-panel .sb-stat:hover {
+  border-color: #89b8ff;
+}
+
+.hud .spellbook-panel .sb-stat.disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .hud .spellbook-panel .sb-grid {
   display: grid;
-  grid-template-columns: repeat(5, var(--sb-cell-size));
+  grid-template-columns: repeat(var(--sb-spell-cols, 5), var(--sb-cell-size));
+  grid-auto-rows: var(--sb-cell-size);
   gap: 6px;
-}
-
-.hud .spellbook-panel .sb-up-hp {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.hud .spellbook-panel .sb-up-mana {
-  grid-column: 1;
-  grid-row: 2;
 }
 
 .hud .spellbook-panel .sb-spell {
@@ -468,8 +598,7 @@ html, body {
   gap: 4px;
   width: var(--sb-cell-size);
   min-width: var(--sb-cell-size);
-  min-height: var(--sb-cell-size);
-  aspect-ratio: 1 / 1;
+  height: var(--sb-cell-size);
   justify-content: space-between;
   overflow: hidden;
 }
@@ -529,12 +658,12 @@ html, body {
 
 @media (max-width: 980px) {
   .hud .spellbook-panel {
-    --sb-cell-size: 46px;
     left: 12px;
-    right: 12px;
+    right: auto;
     bottom: 100px;
-    width: auto;
+    width: calc(100vw - 24px);
     max-height: 46vh;
+    overflow-x: auto;
   }
   .hud .ability-bar {
     left: 12px;
@@ -545,18 +674,16 @@ html, body {
     left: auto;
     right: 12px;
     bottom: 12px;
-    width: 88px;
-    height: 64px;
-  }
-  .hud .gold-floating {
-    left: auto;
-    right: 12px;
-    bottom: 82px;
-    min-width: 88px;
+    width: 26px;
+    height: 132px;
   }
   .hud .ability-slot {
     width: 64px;
     height: 64px;
+  }
+  .hud .home-office-objective {
+    bottom: 84px;
+    min-width: 146px;
   }
 }
 
